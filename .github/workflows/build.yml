@@ -15,26 +15,28 @@ jobs:
       
     - name: Setup Theos
       run: |
-        brew install ldid make
+        brew install ldid make dpkg
         echo "THEOS=$HOME/theos" >> $GITHUB_ENV
         git clone --recursive https://github.com/theos/theos.git $HOME/theos
         
-    - name: Download iOS SDK
+    - name: Setup iOS SDK from Xcode
       run: |
-        cd $HOME/theos/sdks
-        curl -LO https://github.com/theos/sdks/archive/refs/heads/master.zip
-        unzip -q master.zip
-        mv sdks-master/*.sdk . 2>/dev/null || true
-        ls -la
+        # Use SDK from Xcode (already installed on macOS runner)
+        XCODE_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+        echo "Xcode SDK path: $XCODE_SDK"
+        mkdir -p $HOME/theos/sdks
+        ln -s "$XCODE_SDK" "$HOME/theos/sdks/iPhoneOS17.0.sdk"
+        ls -la $HOME/theos/sdks/
         
     - name: Build Tweak
       run: |
         export THEOS=$HOME/theos
         export PATH=$THEOS/bin:$PATH
-        # Use available SDK
-        SDK=$(ls $THEOS/sdks | grep -E "iPhoneOS.*\.sdk" | head -1)
-        echo "Using SDK: $SDK"
-        make package FINALPACKAGE=1 THEOS_DEVICE_IP="" || make package FINALPACKAGE=1
+        make package FINALPACKAGE=1
+        
+    - name: List packages
+      run: |
+        ls -la packages/
         
     - name: Upload DEB
       uses: actions/upload-artifact@v4
@@ -42,13 +44,13 @@ jobs:
         name: FakeInfo-deb
         path: packages/*.deb
         
-    - name: Extract dylib
+    - name: Extract dylib from DEB
       run: |
         cd packages
-        ar -x *.deb
-        tar -xf data.tar.* || tar -xzf data.tar.* || tar -xJf data.tar.*
+        mkdir extract
+        dpkg-deb -x *.deb extract/
         mkdir -p ../output
-        find . -name "*.dylib" -exec cp {} ../output/ \;
+        find extract -name "*.dylib" -exec cp {} ../output/ \;
         ls -la ../output/
         
     - name: Upload dylib
