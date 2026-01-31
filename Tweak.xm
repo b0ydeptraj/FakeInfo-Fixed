@@ -183,6 +183,168 @@ static UITapGestureRecognizer *tripleFingerGesture = nil;
 static UILongPressGestureRecognizer *fourFingerLongPress = nil;
 static UILongPressGestureRecognizer *fourFingerShortPress = nil;
 
+// MARK: - FakeSettingsViewController Implementation
+@implementation FakeSettingsViewController
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.9];
+    
+    self.settingsKeys = @[@"systemVersion", @"deviceModel", @"deviceName", @"identifierForVendor", 
+                          @"bundleIdentifier", @"appVersion", @"bundleVersion", @"displayName", 
+                          @"darwinVersion", @"wifiIP", @"jailbreak"];
+    
+    self.settingsLabels = @{
+        @"systemVersion": @"iOS Version",
+        @"deviceModel": @"Device Model",
+        @"deviceName": @"Device Name",
+        @"identifierForVendor": @"Vendor ID",
+        @"bundleIdentifier": @"Bundle ID",
+        @"appVersion": @"App Version",
+        @"bundleVersion": @"Build Version",
+        @"displayName": @"Display Name",
+        @"darwinVersion": @"Darwin Version",
+        @"wifiIP": @"WiFi IP",
+        @"jailbreak": @"Hide Jailbreak"
+    };
+    
+    // Title label
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 50, self.view.bounds.size.width, 40)];
+    titleLabel.text = @"🎭 FakeInfo Settings";
+    titleLabel.textColor = [UIColor whiteColor];
+    titleLabel.textAlignment = NSTextAlignmentCenter;
+    titleLabel.font = [UIFont boldSystemFontOfSize:20];
+    [self.view addSubview:titleLabel];
+    
+    // Close button
+    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    closeBtn.frame = CGRectMake(self.view.bounds.size.width - 60, 50, 50, 40);
+    [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
+    [closeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    closeBtn.titleLabel.font = [UIFont systemFontOfSize:24];
+    [closeBtn addTarget:self action:@selector(closeSettings) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:closeBtn];
+    
+    // TableView
+    self.tableView = [[UITableView alloc] initWithFrame:CGRectMake(10, 100, self.view.bounds.size.width - 20, self.view.bounds.size.height - 180) style:UITableViewStyleGrouped];
+    self.tableView.delegate = self;
+    self.tableView.dataSource = self;
+    self.tableView.backgroundColor = [UIColor clearColor];
+    self.tableView.separatorColor = [[UIColor whiteColor] colorWithAlphaComponent:0.3];
+    [self.view addSubview:self.tableView];
+    
+    // Save button
+    UIButton *saveBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    saveBtn.frame = CGRectMake(20, self.view.bounds.size.height - 70, self.view.bounds.size.width - 40, 50);
+    saveBtn.backgroundColor = [UIColor systemBlueColor];
+    saveBtn.layer.cornerRadius = 10;
+    [saveBtn setTitle:@"💾 Save Settings" forState:UIControlStateNormal];
+    [saveBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    saveBtn.titleLabel.font = [UIFont boldSystemFontOfSize:18];
+    [saveBtn addTarget:self action:@selector(saveAndClose) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:saveBtn];
+}
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+    return 2;
+}
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    if (section == 0) return self.settingsKeys.count;
+    return 1; // Reset button
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    if (section == 0) return @"Fake Values";
+    return @"Actions";
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.section == 1) {
+        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"reset"];
+        cell.textLabel.text = @"🔄 Reset All Settings";
+        cell.textLabel.textColor = [UIColor systemRedColor];
+        cell.textLabel.textAlignment = NSTextAlignmentCenter;
+        cell.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.1];
+        return cell;
+    }
+    
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"setting"];
+    NSString *key = self.settingsKeys[indexPath.row];
+    FakeSettings *settings = [FakeSettings shared];
+    
+    cell.textLabel.text = self.settingsLabels[key];
+    cell.textLabel.textColor = [UIColor whiteColor];
+    cell.detailTextLabel.text = [settings valueForKey:key];
+    cell.detailTextLabel.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.7];
+    cell.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.1];
+    
+    // Toggle switch
+    UISwitch *toggle = [[UISwitch alloc] init];
+    toggle.on = [settings isEnabled:key];
+    toggle.tag = indexPath.row;
+    [toggle addTarget:self action:@selector(toggleChanged:) forControlEvents:UIControlEventValueChanged];
+    cell.accessoryView = toggle;
+    
+    return cell;
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    
+    if (indexPath.section == 1) {
+        [[FakeSettings shared] resetSettings];
+        [self.tableView reloadData];
+        return;
+    }
+    
+    NSString *key = self.settingsKeys[indexPath.row];
+    if ([key isEqualToString:@"jailbreak"]) return;
+    
+    [self showEditAlertForKey:key];
+}
+
+- (void)showEditAlertForKey:(NSString *)key {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:self.settingsLabels[key]
+                                                                  message:@"Enter new value"
+                                                           preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.text = [[FakeSettings shared] valueForKey:key];
+        textField.placeholder = @"New value";
+    }];
+    
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSString *newValue = alert.textFields.firstObject.text;
+        if (newValue.length > 0) {
+            [FakeSettings shared].settings[key] = newValue;
+            [self.tableView reloadData];
+        }
+    }]];
+    
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)toggleChanged:(UISwitch *)toggle {
+    NSString *key = self.settingsKeys[toggle.tag];
+    [FakeSettings shared].toggles[key] = @(toggle.on);
+}
+
+- (void)saveAndClose {
+    [[FakeSettings shared] saveSettings];
+    [self closeSettings];
+}
+
+- (void)closeSettings {
+    if (settingsWindow) {
+        settingsWindow.hidden = YES;
+        settingsWindow = nil;
+        hasShownSettings = NO;
+    }
+}
+
+@end
+
 void SetupGestureRecognizer() {
     dispatch_async(dispatch_get_main_queue(), ^{
         @autoreleasepool {
