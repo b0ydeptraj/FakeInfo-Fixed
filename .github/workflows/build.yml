@@ -21,69 +21,85 @@ jobs:
         
     - name: Setup iOS SDK from Xcode
       run: |
-        # Use SDK from Xcode (already installed on macOS runner)
         XCODE_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
         echo "Xcode SDK path: $XCODE_SDK"
         mkdir -p $HOME/theos/sdks
         SDK_NAME=$(basename "$XCODE_SDK")
         ln -s "$XCODE_SDK" "$HOME/theos/sdks/$SDK_NAME"
-        # Also create symlink for iOS 17.0
         ln -s "$XCODE_SDK" "$HOME/theos/sdks/iPhoneOS17.0.sdk"
         ls -la $HOME/theos/sdks/
         
-    - name: Build Tweak
+    - name: Build Tweak with Theos
+      id: theos_build
+      continue-on-error: true
       run: |
         export THEOS=$HOME/theos
         export PATH=$THEOS/bin:$PATH
-        # Debug info
-        echo "=== THEOS Structure ==="
-        ls -la $THEOS/
-        ls -la $THEOS/sdks/
-        echo "=== Building ==="
-        make package FINALPACKAGE=1 2>&1 || true
-        echo "=== Check packages folder ==="
-        ls -la packages/ 2>/dev/null || echo "No packages folder"
+        make package FINALPACKAGE=1
+        echo "THEOS_SUCCESS=true" >> $GITHUB_ENV
         
-    - name: Create dylib manually if needed
+    - name: Check Theos Build Result
       run: |
-        export THEOS=$HOME/theos
-        export PATH=$THEOS/bin:$PATH
-        # If packages folder exists with deb
         if ls packages/*.deb 1> /dev/null 2>&1; then
-          echo "DEB found, extracting..."
+          echo "DEB package found!"
+          ls -la packages/
+        else
+          echo "No DEB found, will try direct compile"
+        fi
+        
+    - name: Build with Clang Directly (Fallback)
+      if: ${{ !success() }} || ${{ !env.THEOS_SUCCESS }}
+      run: |
+        mkdir -p output
+        XCODE_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+        
+        # Convert .xm to .mm for logos processing or compile directly
+        # For now, try simple compile without Logos macros
+        echo "Attempting direct clang compile..."
+        
+        clang++ -arch arm64 \
+          -isysroot "$XCODE_SDK" \
+          -miphoneos-version-min=17.0 \
+          -framework UIKit \
+          -framework Foundation \
+          -framework Security \
+          -dynamiclib \
+          -fobjc-arc \
+          -std=c++17 \
+          -x objective-c++ \
+          -Wno-deprecated-declarations \
+          -DTHEOS_LEAN_AND_MEAN \
+          -o output/FakeInfo.dylib \
+          Tweak.xm 2>&1 || echo "Direct compile needs Logos preprocessing"
+          
+        ls -la output/ || true
+        
+    - name: Extract dylib from DEB
+      run: |
+        mkdir -p output
+        if ls packages/*.deb 1> /dev/null 2>&1; then
+          echo "Extracting from DEB package..."
           cd packages
           mkdir -p extract
           dpkg-deb -x *.deb extract/
-          mkdir -p ../output
           find extract -name "*.dylib" -exec cp {} ../output/ \;
-          ls -la ../output/
-        else
-          echo "No DEB found, building dylib directly..."
-          # Try to compile directly without full theos
-          XCODE_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          clang -arch arm64 -isysroot "$XCODE_SDK" \
-            -miphoneos-version-min=17.0 \
-            -framework UIKit -framework Foundation \
-            -dynamiclib \
-            -fobjc-arc \
-            -Wno-deprecated-declarations \
-            -o output/FakeInfo.dylib \
-            Tweak.xm 2>&1 || echo "Direct compile failed too"
-          ls -la output/ 2>/dev/null || echo "No output folder"
+          cd ..
         fi
+        echo "=== Output folder content ==="
+        ls -la output/ || echo "Output folder empty"
         
-    - name: Upload DEB
+    - name: Upload DEB Package
       uses: actions/upload-artifact@v4
       if: always()
       with:
         name: FakeInfo-deb
         path: packages/*.deb
-        if-no-files-found: ignore
+        if-no-files-found: warn
         
-    - name: Upload dylib
+    - name: Upload Dylib
       uses: actions/upload-artifact@v4
       if: always()
       with:
         name: FakeInfo-dylib
         path: output/*.dylib
-        if-no-files-found: ignore
+        if-no-files-found: warn
