@@ -18,19 +18,29 @@ jobs:
       
     - name: Build Package
       run: |
-        export THEOS=$THEOS_INSTANCE
-        echo "THEOS=$THEOS"
-        ls -la $THEOS/
+        # theos-action sets THEOS in env automatically
+        echo "THEOS path: $THEOS"
+        ls -la $THEOS/ || echo "THEOS not found, trying default"
+        
+        # Fallback if THEOS not set
+        if [ -z "$THEOS" ]; then
+          export THEOS=$HOME/theos
+        fi
+        
+        echo "Final THEOS: $THEOS"
         make package FINALPACKAGE=1
         
     - name: List Output
+      if: always()
       run: |
         echo "=== Packages ==="
         ls -la packages/ || echo "No packages"
-        echo "=== Objects ===" 
-        ls -la .theos/obj/ || echo "No obj"
+        echo "=== .theos ===" 
+        ls -la .theos/ || echo "No .theos"
+        find . -name "*.dylib" 2>/dev/null || echo "No dylib found"
         
     - name: Extract dylib from DEB
+      if: always()
       run: |
         mkdir -p output
         if ls packages/*.deb 1> /dev/null 2>&1; then
@@ -40,13 +50,13 @@ jobs:
           find . -name "*.dylib" -exec cp {} ../output/ \;
           cd ..
         fi
-        # Also check .theos folder
         find .theos -name "*.dylib" -exec cp {} output/ \; 2>/dev/null || true
         echo "=== Output ==="
-        ls -la output/
+        ls -la output/ || echo "Empty output"
         
     - name: Upload DEB
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: FakeInfo-deb
         path: packages/*.deb
@@ -54,6 +64,7 @@ jobs:
         
     - name: Upload dylib
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: FakeInfo-dylib
         path: output/*.dylib
