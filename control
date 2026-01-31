@@ -1,0 +1,9 @@
+Package: com.thanhdo1110.fakeinfo
+Name: FakeInfo
+Version: 0.0.2
+Architecture: iphoneos-arm
+Description: Fake device info and anti-jailbreak detection (Fixed version)
+Maintainer: thanhdo1110
+Author: thanhdo1110
+Section: Tweaks
+Depends: mobilesubstrate
