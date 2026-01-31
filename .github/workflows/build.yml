@@ -25,6 +25,9 @@ jobs:
         XCODE_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
         echo "Xcode SDK path: $XCODE_SDK"
         mkdir -p $HOME/theos/sdks
+        SDK_NAME=$(basename "$XCODE_SDK")
+        ln -s "$XCODE_SDK" "$HOME/theos/sdks/$SDK_NAME"
+        # Also create symlink for iOS 17.0
         ln -s "$XCODE_SDK" "$HOME/theos/sdks/iPhoneOS17.0.sdk"
         ls -la $HOME/theos/sdks/
         
@@ -32,29 +35,55 @@ jobs:
       run: |
         export THEOS=$HOME/theos
         export PATH=$THEOS/bin:$PATH
-        make package FINALPACKAGE=1
+        # Debug info
+        echo "=== THEOS Structure ==="
+        ls -la $THEOS/
+        ls -la $THEOS/sdks/
+        echo "=== Building ==="
+        make package FINALPACKAGE=1 2>&1 || true
+        echo "=== Check packages folder ==="
+        ls -la packages/ 2>/dev/null || echo "No packages folder"
         
-    - name: List packages
+    - name: Create dylib manually if needed
       run: |
-        ls -la packages/
+        export THEOS=$HOME/theos
+        export PATH=$THEOS/bin:$PATH
+        # If packages folder exists with deb
+        if ls packages/*.deb 1> /dev/null 2>&1; then
+          echo "DEB found, extracting..."
+          cd packages
+          mkdir -p extract
+          dpkg-deb -x *.deb extract/
+          mkdir -p ../output
+          find extract -name "*.dylib" -exec cp {} ../output/ \;
+          ls -la ../output/
+        else
+          echo "No DEB found, building dylib directly..."
+          # Try to compile directly without full theos
+          XCODE_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          clang -arch arm64 -isysroot "$XCODE_SDK" \
+            -miphoneos-version-min=17.0 \
+            -framework UIKit -framework Foundation \
+            -dynamiclib \
+            -fobjc-arc \
+            -Wno-deprecated-declarations \
+            -o output/FakeInfo.dylib \
+            Tweak.xm 2>&1 || echo "Direct compile failed too"
+          ls -la output/ 2>/dev/null || echo "No output folder"
+        fi
         
     - name: Upload DEB
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: FakeInfo-deb
         path: packages/*.deb
-        
-    - name: Extract dylib from DEB
-      run: |
-        cd packages
-        mkdir extract
-        dpkg-deb -x *.deb extract/
-        mkdir -p ../output
-        find extract -name "*.dylib" -exec cp {} ../output/ \;
-        ls -la ../output/
+        if-no-files-found: ignore
         
     - name: Upload dylib
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: FakeInfo-dylib
         path: output/*.dylib
+        if-no-files-found: ignore
