@@ -7,98 +7,53 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-latest
     
     steps:
     - name: Checkout
       uses: actions/checkout@v4
       
     - name: Setup Theos
+      uses: Randomblock1/theos-action@v1
+      
+    - name: Build Package
       run: |
-        brew install ldid make dpkg
-        echo "THEOS=$HOME/theos" >> $GITHUB_ENV
-        git clone --recursive https://github.com/theos/theos.git $HOME/theos
-        
-    - name: Setup iOS SDK from Xcode
-      run: |
-        XCODE_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-        echo "Xcode SDK path: $XCODE_SDK"
-        mkdir -p $HOME/theos/sdks
-        SDK_NAME=$(basename "$XCODE_SDK")
-        ln -s "$XCODE_SDK" "$HOME/theos/sdks/$SDK_NAME"
-        ln -s "$XCODE_SDK" "$HOME/theos/sdks/iPhoneOS17.0.sdk"
-        ls -la $HOME/theos/sdks/
-        
-    - name: Build Tweak with Theos
-      id: theos_build
-      continue-on-error: true
-      run: |
-        export THEOS=$HOME/theos
-        export PATH=$THEOS/bin:$PATH
+        export THEOS=$THEOS_INSTANCE
+        echo "THEOS=$THEOS"
+        ls -la $THEOS/
         make package FINALPACKAGE=1
-        echo "THEOS_SUCCESS=true" >> $GITHUB_ENV
         
-    - name: Check Theos Build Result
+    - name: List Output
       run: |
-        if ls packages/*.deb 1> /dev/null 2>&1; then
-          echo "DEB package found!"
-          ls -la packages/
-        else
-          echo "No DEB found, will try direct compile"
-        fi
-        
-    - name: Build with Clang Directly (Fallback)
-      if: ${{ !success() }} || ${{ !env.THEOS_SUCCESS }}
-      run: |
-        mkdir -p output
-        XCODE_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-        
-        # Convert .xm to .mm for logos processing or compile directly
-        # For now, try simple compile without Logos macros
-        echo "Attempting direct clang compile..."
-        
-        clang++ -arch arm64 \
-          -isysroot "$XCODE_SDK" \
-          -miphoneos-version-min=17.0 \
-          -framework UIKit \
-          -framework Foundation \
-          -framework Security \
-          -dynamiclib \
-          -fobjc-arc \
-          -std=c++17 \
-          -x objective-c++ \
-          -Wno-deprecated-declarations \
-          -DTHEOS_LEAN_AND_MEAN \
-          -o output/FakeInfo.dylib \
-          Tweak.xm 2>&1 || echo "Direct compile needs Logos preprocessing"
-          
-        ls -la output/ || true
+        echo "=== Packages ==="
+        ls -la packages/ || echo "No packages"
+        echo "=== Objects ===" 
+        ls -la .theos/obj/ || echo "No obj"
         
     - name: Extract dylib from DEB
       run: |
         mkdir -p output
         if ls packages/*.deb 1> /dev/null 2>&1; then
-          echo "Extracting from DEB package..."
           cd packages
-          mkdir -p extract
-          dpkg-deb -x *.deb extract/
-          find extract -name "*.dylib" -exec cp {} ../output/ \;
+          ar -x *.deb 2>/dev/null || true
+          tar -xf data.tar.* 2>/dev/null || true
+          find . -name "*.dylib" -exec cp {} ../output/ \;
           cd ..
         fi
-        echo "=== Output folder content ==="
-        ls -la output/ || echo "Output folder empty"
+        # Also check .theos folder
+        find .theos -name "*.dylib" -exec cp {} output/ \; 2>/dev/null || true
+        echo "=== Output ==="
+        ls -la output/
         
-    - name: Upload DEB Package
+    - name: Upload DEB
       uses: actions/upload-artifact@v4
-      if: always()
       with:
         name: FakeInfo-deb
         path: packages/*.deb
         if-no-files-found: warn
         
-    - name: Upload Dylib
+    - name: Upload dylib
       uses: actions/upload-artifact@v4
-      if: always()
       with:
         name: FakeInfo-dylib
         path: output/*.dylib
