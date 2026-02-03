@@ -401,21 +401,66 @@ void SetupGestureRecognizer() {
 }
 
 void ShowSettingsUI() {
+    SafeLog(@"🔧 ShowSettingsUI called");
+    
+    // Close existing window if any
     if (settingsWindow) {
+        SafeLog(@"🔧 Closing existing settings window");
         settingsWindow.hidden = YES;
         settingsWindow = nil;
         hasShownSettings = NO;
+        return; // Toggle behavior - if was open, just close
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        @autoreleasepool {
-            settingsWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-            settingsWindow.windowLevel = UIWindowLevelAlert + 50;
-            settingsWindow.backgroundColor = [UIColor clearColor];
+        @try {
+            SafeLog(@"🔧 Creating new settings window...");
+            
+            // For iOS 13+, we need to use UIWindowScene
+            if (@available(iOS 13.0, *)) {
+                UIWindowScene *windowScene = nil;
+                for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                    if (scene.activationState == UISceneActivationStateForegroundActive) {
+                        windowScene = scene;
+                        break;
+                    }
+                }
+                
+                if (windowScene) {
+                    settingsWindow = [[UIWindow alloc] initWithWindowScene:windowScene];
+                    SafeLog(@"🔧 Created window with windowScene");
+                } else {
+                    settingsWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+                    SafeLog(@"🔧 Created window with frame (no scene found)");
+                }
+            } else {
+                settingsWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+                SafeLog(@"🔧 Created window with frame (iOS < 13)");
+            }
+            
+            if (!settingsWindow) {
+                SafeLog(@"❌ Failed to create settings window!");
+                return;
+            }
+            
+            settingsWindow.frame = [UIScreen mainScreen].bounds;
+            settingsWindow.windowLevel = UIWindowLevelAlert + 100;
+            settingsWindow.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.9];
+            
             FakeSettingsViewController *settingsVC = [[FakeSettingsViewController alloc] init];
+            if (!settingsVC) {
+                SafeLog(@"❌ Failed to create FakeSettingsViewController!");
+                return;
+            }
+            
             settingsWindow.rootViewController = settingsVC;
+            settingsWindow.hidden = NO;
             [settingsWindow makeKeyAndVisible];
-            SafeLog(@"Settings UI presented.");
+            hasShownSettings = YES;
+            
+            SafeLog(@"✅ Settings UI presented successfully! Frame: %@", NSStringFromCGRect(settingsWindow.frame));
+        } @catch (NSException *e) {
+            SafeLog(@"❌ Exception in ShowSettingsUI: %@", e.reason);
         }
     });
 }
