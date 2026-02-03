@@ -258,21 +258,27 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return self.settingsKeys.count;
-    return 1; // Reset button
+    return 2; // Random All + Reset button
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (section == 0) return @"Fake Values";
-    return @"Actions";
+    return @"Quick Actions";
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.section == 1) {
-        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"reset"];
-        cell.textLabel.text = @"🔄 Reset All Settings";
-        cell.textLabel.textColor = [UIColor systemRedColor];
+        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"action"];
         cell.textLabel.textAlignment = NSTextAlignmentCenter;
         cell.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.1];
+        
+        if (indexPath.row == 0) {
+            cell.textLabel.text = @"🎲 Random All (Real Device Data)";
+            cell.textLabel.textColor = [UIColor systemGreenColor];
+        } else {
+            cell.textLabel.text = @"🔄 Reset All Settings";
+            cell.textLabel.textColor = [UIColor systemRedColor];
+        }
         return cell;
     }
     
@@ -300,13 +306,17 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     
     if (indexPath.section == 1) {
-        [[FakeSettings shared] resetSettings];
+        if (indexPath.row == 0) {
+            [self randomAllSettings];
+        } else {
+            [[FakeSettings shared] resetSettings];
+        }
         [self.tableView reloadData];
         return;
     }
     
     NSString *key = self.settingsKeys[indexPath.row];
-    if ([key isEqualToString:@"jailbreak"]) return;
+    if ([key isEqualToString:@"jailbreak"] || [key isEqualToString:@"keychain"]) return;
     
     [self showEditAlertForKey:key];
 }
@@ -348,6 +358,85 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
         settingsWindow = nil;
         hasShownSettings = NO;
     }
+}
+
+- (void)randomAllSettings {
+    // Database of REAL iPhone devices with accurate specs
+    NSArray *realDevices = @[
+        @{@"model": @"iPhone16,2", @"name": @"iPhone 15 Pro Max", @"ios": @"17.2.1", @"darwin": @"23.2.0", @"build": @"21C66"},
+        @{@"model": @"iPhone16,1", @"name": @"iPhone 15 Pro", @"ios": @"17.1.2", @"darwin": @"23.1.0", @"build": @"21B101"},
+        @{@"model": @"iPhone15,4", @"name": @"iPhone 15", @"ios": @"17.0.3", @"darwin": @"23.0.0", @"build": @"21A360"},
+        @{@"model": @"iPhone15,3", @"name": @"iPhone 14 Pro Max", @"ios": @"16.6.1", @"darwin": @"22.6.0", @"build": @"20G81"},
+        @{@"model": @"iPhone15,2", @"name": @"iPhone 14 Pro", @"ios": @"16.5.1", @"darwin": @"22.5.0", @"build": @"20F75"},
+        @{@"model": @"iPhone14,7", @"name": @"iPhone 14", @"ios": @"16.4.1", @"darwin": @"22.4.0", @"build": @"20E252"},
+        @{@"model": @"iPhone14,3", @"name": @"iPhone 13 Pro Max", @"ios": @"15.7.9", @"darwin": @"21.6.0", @"build": @"19H365"},
+        @{@"model": @"iPhone14,2", @"name": @"iPhone 13 Pro", @"ios": @"15.6.1", @"darwin": @"21.6.0", @"build": @"19G82"},
+        @{@"model": @"iPhone14,5", @"name": @"iPhone 13", @"ios": @"15.5", @"darwin": @"21.5.0", @"build": @"19F77"},
+        @{@"model": @"iPhone13,4", @"name": @"iPhone 12 Pro Max", @"ios": @"15.4.1", @"darwin": @"21.4.0", @"build": @"19E258"},
+        @{@"model": @"iPhone13,3", @"name": @"iPhone 12 Pro", @"ios": @"15.3.1", @"darwin": @"21.3.0", @"build": @"19D52"},
+        @{@"model": @"iPhone12,5", @"name": @"iPhone 11 Pro Max", @"ios": @"15.2.1", @"darwin": @"21.2.0", @"build": @"19C63"},
+        @{@"model": @"iPhone12,3", @"name": @"iPhone 11 Pro", @"ios": @"15.1", @"darwin": @"21.1.0", @"build": @"19B74"},
+        @{@"model": @"iPhone12,1", @"name": @"iPhone 11", @"ios": @"15.0.2", @"darwin": @"21.0.0", @"build": @"19A404"},
+    ];
+    
+    // Pick random device
+    NSDictionary *device = realDevices[arc4random_uniform((uint32_t)realDevices.count)];
+    
+    // Generate random UUID
+    NSString *uuid = [self generateRandomUUID];
+    
+    // Generate random private IP (192.168.x.x or 10.0.x.x)
+    int ipType = arc4random_uniform(2);
+    NSString *ip;
+    if (ipType == 0) {
+        ip = [NSString stringWithFormat:@"192.168.%d.%d", arc4random_uniform(255), arc4random_uniform(254) + 1];
+    } else {
+        ip = [NSString stringWithFormat:@"10.0.%d.%d", arc4random_uniform(255), arc4random_uniform(254) + 1];
+    }
+    
+    // Random device names
+    NSArray *deviceNames = @[@"iPhone", @"My iPhone", @"iPhone của tôi", @"Personal iPhone", 
+                              @"Work Phone", @"Mobile", @"iPhone Pro", @"Main Phone"];
+    NSString *deviceName = deviceNames[arc4random_uniform((uint32_t)deviceNames.count)];
+    
+    // Random app version
+    NSString *appVersion = [NSString stringWithFormat:@"%d.%d.%d", 
+                           arc4random_uniform(10) + 1, 
+                           arc4random_uniform(10), 
+                           arc4random_uniform(10)];
+    
+    // Random bundle version
+    NSString *bundleVersion = [NSString stringWithFormat:@"%d", arc4random_uniform(9000) + 1000];
+    
+    // Apply settings
+    FakeSettings *settings = [FakeSettings shared];
+    settings.settings[@"systemVersion"] = device[@"ios"];
+    settings.settings[@"deviceModel"] = device[@"model"];
+    settings.settings[@"deviceName"] = deviceName;
+    settings.settings[@"identifierForVendor"] = uuid;
+    settings.settings[@"appVersion"] = appVersion;
+    settings.settings[@"bundleVersion"] = bundleVersion;
+    settings.settings[@"darwinVersion"] = device[@"darwin"];
+    settings.settings[@"wifiIP"] = ip;
+    
+    // Enable all toggles
+    settings.toggles[@"systemVersion"] = @YES;
+    settings.toggles[@"deviceModel"] = @YES;
+    settings.toggles[@"deviceName"] = @YES;
+    settings.toggles[@"identifierForVendor"] = @YES;
+    settings.toggles[@"appVersion"] = @YES;
+    settings.toggles[@"bundleVersion"] = @YES;
+    settings.toggles[@"darwinVersion"] = @YES;
+    settings.toggles[@"wifiIP"] = @YES;
+    settings.toggles[@"keychain"] = @YES;
+    settings.toggles[@"jailbreak"] = @YES;
+    
+    SafeLog(@"🎲 Random device applied: %@ (%@) iOS %@", device[@"name"], device[@"model"], device[@"ios"]);
+}
+
+- (NSString *)generateRandomUUID {
+    // Generate a valid UUID v4 format
+    return [[NSUUID UUID] UUIDString];
 }
 
 @end
