@@ -360,11 +360,194 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     }
 }
 
-- (void)randomAllSettings {
-    // Database of REAL iPhone devices with 100% VERIFIED accurate specs from Apple
-    // Format: model, marketing name, iOS version, Darwin version, build number
-    // All data verified from ipsw.me, theiphonewiki.com, and Apple official sources
-    NSArray *realDevices = @[
+// ============================================================================
+// MARK: - Online Device Database from ipsw.me API
+// ============================================================================
+
+// Cache key constants
+static NSString *const kCachedDevicesKey = @"FakeInfo_CachedDevices";
+static NSString *const kCacheTimestampKey = @"FakeInfo_CacheTimestamp";
+static const NSTimeInterval kCacheExpiration = 24 * 60 * 60; // 24 hours
+
+// Darwin version mapping based on iOS major version
+- (NSString *)darwinVersionForIOS:(NSString *)iosVersion {
+    if (!iosVersion) return @"24.0.0";
+    
+    NSArray *parts = [iosVersion componentsSeparatedByString:@"."];
+    if (parts.count == 0) return @"24.0.0";
+    
+    int major = [parts[0] intValue];
+    NSString *minor = parts.count > 1 ? parts[1] : @"0";
+    
+    // iOS major version + 6 = Darwin major version
+    // iOS 18 -> Darwin 24, iOS 17 -> Darwin 23, etc.
+    int darwinMajor = major + 6;
+    
+    return [NSString stringWithFormat:@"%d.%@.0", darwinMajor, minor];
+}
+
+// Check if cache is still valid
+- (BOOL)isCacheValid {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSDate *timestamp = [defaults objectForKey:kCacheTimestampKey];
+    if (!timestamp) return NO;
+    
+    NSTimeInterval age = [[NSDate date] timeIntervalSinceDate:timestamp];
+    return age < kCacheExpiration;
+}
+
+// Get cached devices
+- (NSArray *)getCachedDevices {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    return [defaults arrayForKey:kCachedDevicesKey];
+}
+
+// Save devices to cache
+- (void)cacheDevices:(NSArray *)devices {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setObject:devices forKey:kCachedDevicesKey];
+    [defaults setObject:[NSDate date] forKey:kCacheTimestampKey];
+    [defaults synchronize];
+    SafeLog(@"📦 Cached %lu devices from API", (unsigned long)devices.count);
+}
+
+// Fetch devices from ipsw.me API
+- (void)fetchDevicesFromAPI:(void(^)(NSArray *devices, NSError *error))completion {
+    NSURL *url = [NSURL URLWithString:@"https://api.ipsw.me/v4/devices"];
+    
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url 
+        completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            if (error) {
+                SafeLog(@"❌ API fetch error: %@", error.localizedDescription);
+                completion(nil, error);
+                return;
+            }
+            
+            NSError *jsonError;
+            NSArray *allDevices = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
+            if (jsonError) {
+                SafeLog(@"❌ JSON parse error: %@", jsonError.localizedDescription);
+                completion(nil, jsonError);
+                return;
+            }
+            
+            // Filter only iPhones (identifier starts with "iPhone")
+            NSMutableArray *iPhones = [NSMutableArray array];
+            for (NSDictionary *device in allDevices) {
+                NSString *identifier = device[@"identifier"];
+                if ([identifier hasPrefix:@"iPhone"]) {
+                    [iPhones addObject:@{
+                        @"model": identifier,
+                        @"name": device[@"name"]
+                    }];
+                }
+            }
+            
+            SafeLog(@"✅ Fetched %lu iPhones from API", (unsigned long)iPhones.count);
+            completion(iPhones, nil);
+        }];
+    [task resume];
+}
+
+// Fetch firmware info for a specific device
+- (void)fetchFirmwareForDevice:(NSString *)identifier completion:(void(^)(NSDictionary *firmware, NSError *error))completion {
+    NSString *urlStr = [NSString stringWithFormat:@"https://api.ipsw.me/v4/device/%@?type=ipsw", identifier];
+    NSURL *url = [NSURL URLWithString:urlStr];
+    
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url 
+        completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            if (error) {
+                completion(nil, error);
+                return;
+            }
+            
+            NSError *jsonError;
+            NSDictionary *deviceInfo = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
+            if (jsonError) {
+                completion(nil, jsonError);
+                return;
+            }
+            
+            // Get latest signed firmware, or first firmware if none signed
+            NSArray *firmwares = deviceInfo[@"firmwares"];
+            NSDictionary *latestFirmware = nil;
+            
+            for (NSDictionary *fw in firmwares) {
+                if ([fw[@"signed"] boolValue]) {
+                    latestFirmware = fw;
+                    break;
+                }
+            }
+            
+            // Fallback to first firmware if no signed found
+            if (!latestFirmware && firmwares.count > 0) {
+                latestFirmware = firmwares[0];
+            }
+            
+            if (latestFirmware) {
+                NSString *iosVersion = latestFirmware[@"version"];
+                completion(@{
+                    @"model": identifier,
+                    @"name": deviceInfo[@"name"],
+                    @"ios": iosVersion ?: @"18.0",
+                    @"build": latestFirmware[@"buildid"] ?: @"22A3354",
+                    @"darwin": [self darwinVersionForIOS:iosVersion]
+                }, nil);
+            } else {
+                completion(nil, [NSError errorWithDomain:@"FakeInfo" code:404 userInfo:@{NSLocalizedDescriptionKey: @"No firmware found"}]);
+            }
+        }];
+    [task resume];
+}
+
+// Update database from API (async, caches result)
+- (void)updateDatabaseFromAPIWithCompletion:(void(^)(BOOL success, NSInteger count))completion {
+    [self fetchDevicesFromAPI:^(NSArray *devices, NSError *error) {
+        if (error || !devices || devices.count == 0) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (completion) completion(NO, 0);
+            });
+            return;
+        }
+        
+        // Randomly select 20 devices to fetch firmware (to avoid too many requests)
+        NSMutableArray *shuffled = [devices mutableCopy];
+        for (NSUInteger i = shuffled.count - 1; i > 0; i--) {
+            NSUInteger j = arc4random_uniform((uint32_t)(i + 1));
+            [shuffled exchangeObjectAtIndex:i withObjectAtIndex:j];
+        }
+        
+        NSArray *selectedDevices = [shuffled subarrayWithRange:NSMakeRange(0, MIN(20, shuffled.count))];
+        
+        __block NSMutableArray *fullDevices = [NSMutableArray array];
+        __block NSInteger completed = 0;
+        
+        for (NSDictionary *device in selectedDevices) {
+            [self fetchFirmwareForDevice:device[@"model"] completion:^(NSDictionary *firmware, NSError *fwError) {
+                if (firmware) {
+                    @synchronized(fullDevices) {
+                        [fullDevices addObject:firmware];
+                    }
+                }
+                
+                completed++;
+                if (completed == selectedDevices.count) {
+                    // All done, cache the results
+                    if (fullDevices.count > 0) {
+                        [self cacheDevices:fullDevices];
+                    }
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if (completion) completion(fullDevices.count > 0, fullDevices.count);
+                    });
+                }
+            }];
+        }
+    }];
+}
+
+// Local fallback database (used when offline)
+- (NSArray *)getLocalDeviceDatabase {
+    return @[
         // iPhone 16 Series (2024) - iOS 18.x
         @{@"model": @"iPhone17,2", @"name": @"iPhone 16 Pro Max", @"ios": @"18.1.1", @"darwin": @"24.1.0", @"build": @"22B91"},
         @{@"model": @"iPhone17,1", @"name": @"iPhone 16 Pro", @"ios": @"18.1", @"darwin": @"24.1.0", @"build": @"22B83"},
@@ -376,42 +559,34 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
         @{@"model": @"iPhone16,1", @"name": @"iPhone 15 Pro", @"ios": @"17.4.1", @"darwin": @"23.4.0", @"build": @"21E237"},
         @{@"model": @"iPhone15,5", @"name": @"iPhone 15 Plus", @"ios": @"17.3.1", @"darwin": @"23.3.0", @"build": @"21D61"},
         @{@"model": @"iPhone15,4", @"name": @"iPhone 15", @"ios": @"17.2.1", @"darwin": @"23.2.0", @"build": @"21C66"},
-        @{@"model": @"iPhone16,2", @"name": @"iPhone 15 Pro Max", @"ios": @"17.0", @"darwin": @"23.0.0", @"build": @"21A329"},
         
         // iPhone 14 Series (2022) - iOS 16.x
         @{@"model": @"iPhone15,3", @"name": @"iPhone 14 Pro Max", @"ios": @"16.7.2", @"darwin": @"22.6.0", @"build": @"20H115"},
         @{@"model": @"iPhone15,2", @"name": @"iPhone 14 Pro", @"ios": @"16.6.1", @"darwin": @"22.6.0", @"build": @"20G81"},
         @{@"model": @"iPhone14,8", @"name": @"iPhone 14 Plus", @"ios": @"16.5.1", @"darwin": @"22.5.0", @"build": @"20F75"},
         @{@"model": @"iPhone14,7", @"name": @"iPhone 14", @"ios": @"16.4.1", @"darwin": @"22.4.0", @"build": @"20E252"},
-        @{@"model": @"iPhone15,3", @"name": @"iPhone 14 Pro Max", @"ios": @"16.0", @"darwin": @"22.0.0", @"build": @"20A362"},
         
-        // iPhone 13 Series (2021) - iOS 15.x / 16.x / 17.x
+        // iPhone 13 Series (2021)
         @{@"model": @"iPhone14,3", @"name": @"iPhone 13 Pro Max", @"ios": @"17.1.2", @"darwin": @"23.1.0", @"build": @"21B101"},
         @{@"model": @"iPhone14,2", @"name": @"iPhone 13 Pro", @"ios": @"16.3.1", @"darwin": @"22.3.0", @"build": @"20D67"},
         @{@"model": @"iPhone14,5", @"name": @"iPhone 13", @"ios": @"15.7.9", @"darwin": @"21.6.0", @"build": @"19H365"},
         @{@"model": @"iPhone14,4", @"name": @"iPhone 13 mini", @"ios": @"15.6.1", @"darwin": @"21.6.0", @"build": @"19G82"},
-        @{@"model": @"iPhone14,3", @"name": @"iPhone 13 Pro Max", @"ios": @"15.0", @"darwin": @"21.0.0", @"build": @"19A346"},
         
-        // iPhone 12 Series (2020) - iOS 14.x / 15.x / 16.x
+        // iPhone 12 Series (2020)
         @{@"model": @"iPhone13,4", @"name": @"iPhone 12 Pro Max", @"ios": @"16.2", @"darwin": @"22.2.0", @"build": @"20C65"},
         @{@"model": @"iPhone13,3", @"name": @"iPhone 12 Pro", @"ios": @"15.5", @"darwin": @"21.5.0", @"build": @"19F77"},
         @{@"model": @"iPhone13,2", @"name": @"iPhone 12", @"ios": @"15.4.1", @"darwin": @"21.4.0", @"build": @"19E258"},
         @{@"model": @"iPhone13,1", @"name": @"iPhone 12 mini", @"ios": @"15.3.1", @"darwin": @"21.3.0", @"build": @"19D52"},
-        @{@"model": @"iPhone13,4", @"name": @"iPhone 12 Pro Max", @"ios": @"14.1", @"darwin": @"20.1.0", @"build": @"18A8395"},
         
-        // iPhone 11 Series (2019) - iOS 13.x / 14.x / 15.x
+        // iPhone 11 Series (2019)
         @{@"model": @"iPhone12,5", @"name": @"iPhone 11 Pro Max", @"ios": @"15.2.1", @"darwin": @"21.2.0", @"build": @"19C63"},
         @{@"model": @"iPhone12,3", @"name": @"iPhone 11 Pro", @"ios": @"15.1", @"darwin": @"21.1.0", @"build": @"19B74"},
         @{@"model": @"iPhone12,1", @"name": @"iPhone 11", @"ios": @"15.0.2", @"darwin": @"21.0.0", @"build": @"19A404"},
-        @{@"model": @"iPhone12,5", @"name": @"iPhone 11 Pro Max", @"ios": @"14.8.1", @"darwin": @"20.6.0", @"build": @"18H107"},
-        @{@"model": @"iPhone12,3", @"name": @"iPhone 11 Pro", @"ios": @"13.7", @"darwin": @"19.6.0", @"build": @"17H35"},
         
-        // iPhone XS/XR Series (2018) - iOS 12.x / 13.x / 14.x / 15.x
+        // iPhone XS/XR/X/8 Series
         @{@"model": @"iPhone11,6", @"name": @"iPhone XS Max", @"ios": @"15.7.1", @"darwin": @"21.6.0", @"build": @"19H117"},
         @{@"model": @"iPhone11,2", @"name": @"iPhone XS", @"ios": @"14.7.1", @"darwin": @"20.5.0", @"build": @"18G82"},
         @{@"model": @"iPhone11,8", @"name": @"iPhone XR", @"ios": @"16.7.5", @"darwin": @"22.6.0", @"build": @"20H307"},
-        
-        // iPhone X/8 Series (2017) - iOS 11.x / 12.x / 13.x / 14.x / 15.x
         @{@"model": @"iPhone10,6", @"name": @"iPhone X", @"ios": @"16.7.4", @"darwin": @"22.6.0", @"build": @"20H240"},
         @{@"model": @"iPhone10,5", @"name": @"iPhone 8 Plus", @"ios": @"16.7.3", @"darwin": @"22.6.0", @"build": @"20H232"},
         @{@"model": @"iPhone10,4", @"name": @"iPhone 8", @"ios": @"15.8", @"darwin": @"21.6.0", @"build": @"19H370"},
@@ -420,6 +595,36 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
         @{@"model": @"iPhone14,6", @"name": @"iPhone SE 3rd Gen", @"ios": @"17.3", @"darwin": @"23.3.0", @"build": @"21D50"},
         @{@"model": @"iPhone12,8", @"name": @"iPhone SE 2nd Gen", @"ios": @"16.6", @"darwin": @"22.5.0", @"build": @"20G75"},
     ];
+}
+
+// Get devices (from cache or local fallback)
+- (NSArray *)getDeviceDatabase {
+    // Try cached devices first
+    if ([self isCacheValid]) {
+        NSArray *cached = [self getCachedDevices];
+        if (cached && cached.count > 0) {
+            SafeLog(@"📱 Using %lu cached devices from API", (unsigned long)cached.count);
+            return cached;
+        }
+    }
+    
+    // Fallback to local database
+    SafeLog(@"📱 Using local device database (offline mode)");
+    return [self getLocalDeviceDatabase];
+}
+
+- (void)randomAllSettings {
+    // Get device database (cached API data or local fallback)
+    NSArray *realDevices = [self getDeviceDatabase];
+    
+    // Try to update cache in background if expired (non-blocking)
+    if (![self isCacheValid]) {
+        [self updateDatabaseFromAPIWithCompletion:^(BOOL success, NSInteger count) {
+            if (success) {
+                SafeLog(@"🔄 Background cache update: %ld devices", (long)count);
+            }
+        }];
+    }
     
     // Pick random device
     NSDictionary *device = realDevices[arc4random_uniform((uint32_t)realDevices.count)];
