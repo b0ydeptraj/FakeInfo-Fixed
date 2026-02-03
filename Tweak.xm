@@ -628,6 +628,34 @@ FILE* fake_fopen(const char *path, const char *mode) {
 }
 %end
 
+// MARK: - Shake to Open Settings (Alternative to 4-finger gesture)
+%hook UIApplication
+- (void)sendEvent:(UIEvent *)event {
+    %orig;
+    
+    if (event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake) {
+        static NSTimeInterval lastShakeTime = 0;
+        NSTimeInterval currentTime = [[NSDate date] timeIntervalSince1970];
+        
+        // Debounce: only trigger once every 2 seconds
+        if (currentTime - lastShakeTime > 2.0) {
+            lastShakeTime = currentTime;
+            SafeLog(@"📳 Shake detected! Opening Settings UI...");
+            
+            dispatch_async(dispatch_get_main_queue(), ^{
+                ShowSettingsUI();
+                
+                // Haptic feedback
+                if (@available(iOS 10.0, *)) {
+                    UIImpactFeedbackGenerator *feedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
+                    [feedback impactOccurred];
+                }
+            });
+        }
+    }
+}
+%end
+
 // MARK: - Tweak Initialization (FIXED)
 %ctor {
     @autoreleasepool {
