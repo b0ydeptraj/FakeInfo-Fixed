@@ -12,6 +12,7 @@
 #import <dlfcn.h>
 #import <execinfo.h>
 #import <sys/stat.h>
+#import <Security/Security.h>
 
 // MARK: - Original Function Pointers (CRITICAL FIX)
 static int (*orig_sysctlbyname_ptr)(const char *, void *, size_t *, void *, size_t) = NULL;
@@ -20,6 +21,11 @@ static int (*orig_getifaddrs_ptr)(struct ifaddrs **) = NULL;
 static int (*orig_stat_ptr)(const char *, struct stat *) = NULL;
 static int (*orig_access_ptr)(const char *, int) = NULL;
 static FILE* (*orig_fopen_ptr)(const char *, const char *) = NULL;
+
+// Keychain hooks
+static OSStatus (*orig_SecItemCopyMatching_ptr)(CFDictionaryRef query, CFTypeRef *result) = NULL;
+static OSStatus (*orig_SecItemAdd_ptr)(CFDictionaryRef attributes, CFTypeRef *result) = NULL;
+static OSStatus (*orig_SecItemDelete_ptr)(CFDictionaryRef query) = NULL;
 
 // MARK: - Global Variables & Forward Declarations
 static UIWindow *settingsWindow = nil;
@@ -192,7 +198,7 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     
     self.settingsKeys = @[@"systemVersion", @"deviceModel", @"deviceName", @"identifierForVendor", 
                           @"bundleIdentifier", @"appVersion", @"bundleVersion", @"displayName", 
-                          @"darwinVersion", @"wifiIP", @"jailbreak"];
+                          @"darwinVersion", @"wifiIP", @"jailbreak", @"keychain"];
     
     self.settingsLabels = @{
         @"systemVersion": @"iOS Version",
@@ -205,7 +211,8 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
         @"displayName": @"Display Name",
         @"darwinVersion": @"Darwin Version",
         @"wifiIP": @"WiFi IP",
-        @"jailbreak": @"Hide Jailbreak"
+        @"jailbreak": @"Hide Jailbreak",
+        @"keychain": @"🔐 Block Keychain (Fresh Device)"
     };
     
     // Title label
@@ -673,6 +680,54 @@ FILE* fake_fopen(const char *path, const char *mode) {
 }
 %end
 
+// MARK: - Fake Keychain (to make app think device is fresh/new)
+OSStatus fake_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"keychain"]) {
+            SafeLog(@"🔐 SecItemCopyMatching blocked - returning errSecItemNotFound");
+            if (result) *result = NULL;
+            return errSecItemNotFound; // -25300: Item not found
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] SecItemCopyMatching: %@", e.reason); }
+    
+    if (orig_SecItemCopyMatching_ptr) {
+        return orig_SecItemCopyMatching_ptr(query, result);
+    }
+    return errSecItemNotFound;
+}
+
+OSStatus fake_SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result) {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"keychain"]) {
+            SafeLog(@"🔐 SecItemAdd blocked - faking success without storing");
+            if (result) *result = NULL;
+            return errSecSuccess; // Fake success but don't actually store
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] SecItemAdd: %@", e.reason); }
+    
+    if (orig_SecItemAdd_ptr) {
+        return orig_SecItemAdd_ptr(attributes, result);
+    }
+    return errSecSuccess;
+}
+
+OSStatus fake_SecItemDelete(CFDictionaryRef query) {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"keychain"]) {
+            SafeLog(@"🔐 SecItemDelete - returning success");
+            return errSecSuccess;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] SecItemDelete: %@", e.reason); }
+    
+    if (orig_SecItemDelete_ptr) {
+        return orig_SecItemDelete_ptr(query);
+    }
+    return errSecSuccess;
+}
+
 // MARK: - Shake to Open Settings (Alternative to 4-finger gesture)
 %hook UIApplication
 - (void)sendEvent:(UIEvent *)event {
@@ -726,6 +781,17 @@ FILE* fake_fopen(const char *path, const char *mode) {
             if (ptr_stat) MSHookFunction(ptr_stat, (void *)&fake_stat, (void **)&orig_stat_ptr);
             if (ptr_access) MSHookFunction(ptr_access, (void *)&fake_access, (void **)&orig_access_ptr);
             if (ptr_fopen) MSHookFunction(ptr_fopen, (void *)&fake_fopen, (void **)&orig_fopen_ptr);
+
+            // Keychain hooks for fresh device simulation
+            void *ptr_SecItemCopyMatching = dlsym(handle, "SecItemCopyMatching");
+            void *ptr_SecItemAdd = dlsym(handle, "SecItemAdd");
+            void *ptr_SecItemDelete = dlsym(handle, "SecItemDelete");
+            
+            if (ptr_SecItemCopyMatching) MSHookFunction(ptr_SecItemCopyMatching, (void *)&fake_SecItemCopyMatching, (void **)&orig_SecItemCopyMatching_ptr);
+            if (ptr_SecItemAdd) MSHookFunction(ptr_SecItemAdd, (void *)&fake_SecItemAdd, (void **)&orig_SecItemAdd_ptr);
+            if (ptr_SecItemDelete) MSHookFunction(ptr_SecItemDelete, (void *)&fake_SecItemDelete, (void **)&orig_SecItemDelete_ptr);
+            
+            SafeLog(@"🔐 Keychain hooks installed");
 
             dlclose(handle);
         } else {
