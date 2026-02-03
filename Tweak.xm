@@ -13,6 +13,11 @@
 #import <execinfo.h>
 #import <sys/stat.h>
 #import <Security/Security.h>
+#import <AdSupport/AdSupport.h>
+#import <CoreTelephony/CTCarrier.h>
+#import <CoreTelephony/CTTelephonyNetworkInfo.h>
+#import <sys/sysctl.h>
+#import <mach/mach.h>
 
 // MARK: - Original Function Pointers (CRITICAL FIX)
 static int (*orig_sysctlbyname_ptr)(const char *, void *, size_t *, void *, size_t) = NULL;
@@ -197,22 +202,28 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     self.view.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.9];
     
     self.settingsKeys = @[@"systemVersion", @"deviceModel", @"deviceName", @"identifierForVendor", 
+                          @"idfa", @"locale", @"timezone", @"carrier",
                           @"bundleIdentifier", @"appVersion", @"bundleVersion", @"displayName", 
-                          @"darwinVersion", @"wifiIP", @"jailbreak", @"keychain"];
+                          @"darwinVersion", @"wifiIP", @"bootTime", @"jailbreak", @"keychain"];
     
     self.settingsLabels = @{
-        @"systemVersion": @"iOS Version",
-        @"deviceModel": @"Device Model",
-        @"deviceName": @"Device Name",
-        @"identifierForVendor": @"Vendor ID",
-        @"bundleIdentifier": @"Bundle ID",
-        @"appVersion": @"App Version",
-        @"bundleVersion": @"Build Version",
-        @"displayName": @"Display Name",
-        @"darwinVersion": @"Darwin Version",
-        @"wifiIP": @"WiFi IP",
-        @"jailbreak": @"Hide Jailbreak",
-        @"keychain": @"🔐 Block Keychain (Fresh Device)"
+        @"systemVersion": @"📱 iOS Version",
+        @"deviceModel": @"📲 Device Model",
+        @"deviceName": @"📛 Device Name",
+        @"identifierForVendor": @"🔑 Vendor ID (UUID)",
+        @"idfa": @"📺 Advertising ID (IDFA)",
+        @"locale": @"🌍 Language/Region",
+        @"timezone": @"🕐 Timezone",
+        @"carrier": @"📶 Carrier Name",
+        @"bundleIdentifier": @"📦 Bundle ID",
+        @"appVersion": @"🏷️ App Version",
+        @"bundleVersion": @"🔢 Build Version",
+        @"displayName": @"✏️ Display Name",
+        @"darwinVersion": @"⚙️ Darwin Version",
+        @"wifiIP": @"📡 WiFi IP",
+        @"bootTime": @"⏰ Boot Time (Fresh)",
+        @"jailbreak": @"🔓 Hide Jailbreak",
+        @"keychain": @"🔐 Block Keychain"
     };
     
     // Title label
@@ -629,45 +640,81 @@ static const NSTimeInterval kCacheExpiration = 24 * 60 * 60; // 24 hours
     // Pick random device
     NSDictionary *device = realDevices[arc4random_uniform((uint32_t)realDevices.count)];
     
-    // Generate random UUID using iOS native method (always valid format)
-    NSString *uuid = [self generateRandomUUID];
+    // Generate random UUIDs
+    NSString *vendorUUID = [self generateRandomUUID];
+    NSString *idfaUUID = [self generateRandomUUID];
     
-    // Real WiFi IP ranges (common home/office networks)
+    // Real WiFi IP ranges
     NSArray *realIPPrefixes = @[
         @"192.168.1", @"192.168.0", @"192.168.2", @"192.168.10", @"192.168.100",
         @"10.0.0", @"10.0.1", @"10.1.1", @"172.16.0", @"172.16.1"
     ];
     NSString *ipPrefix = realIPPrefixes[arc4random_uniform((uint32_t)realIPPrefixes.count)];
-    NSString *ip = [NSString stringWithFormat:@"%@.%d", ipPrefix, arc4random_uniform(200) + 2]; // .2 to .201
+    NSString *ip = [NSString stringWithFormat:@"%@.%d", ipPrefix, arc4random_uniform(200) + 2];
     
-    // Real device names that people actually use
+    // Real device names
     NSArray *deviceNames = @[
-        [NSString stringWithFormat:@"%@", device[@"name"]], // Same as model name
+        [NSString stringWithFormat:@"%@", device[@"name"]],
         [NSString stringWithFormat:@"%@ của tôi", device[@"name"]],
-        @"iPhone",
-        @"iPhone của tôi",
-        @"My iPhone",
-        @"Phone",
-        @"Personal",
-        @"Main Phone",
-        @"Work iPhone"
+        @"iPhone", @"iPhone của tôi", @"My iPhone",
+        @"Phone", @"Personal", @"Main Phone", @"Work iPhone"
     ];
     NSString *deviceName = deviceNames[arc4random_uniform((uint32_t)deviceNames.count)];
     
-    // Don't randomize app version and bundle version - keep from the app itself
-    // These are app-specific, not device-specific
+    // ============================================================================
+    // NEW: Deep Identity Faking - Locale, Timezone, Carrier
+    // ============================================================================
     
-    // Apply settings with REAL device data
+    // Locale + Timezone combinations (realistic pairings)
+    NSArray *localeData = @[
+        @{@"locale": @"en_US", @"timezone": @"America/New_York", @"carrier": @"AT&T"},
+        @{@"locale": @"en_US", @"timezone": @"America/Los_Angeles", @"carrier": @"Verizon"},
+        @{@"locale": @"en_US", @"timezone": @"America/Chicago", @"carrier": @"T-Mobile"},
+        @{@"locale": @"en_GB", @"timezone": @"Europe/London", @"carrier": @"EE"},
+        @{@"locale": @"en_AU", @"timezone": @"Australia/Sydney", @"carrier": @"Telstra"},
+        @{@"locale": @"vi_VN", @"timezone": @"Asia/Ho_Chi_Minh", @"carrier": @"Viettel"},
+        @{@"locale": @"vi_VN", @"timezone": @"Asia/Ho_Chi_Minh", @"carrier": @"Mobifone"},
+        @{@"locale": @"vi_VN", @"timezone": @"Asia/Ho_Chi_Minh", @"carrier": @"Vinaphone"},
+        @{@"locale": @"ja_JP", @"timezone": @"Asia/Tokyo", @"carrier": @"NTT DOCOMO"},
+        @{@"locale": @"ja_JP", @"timezone": @"Asia/Tokyo", @"carrier": @"SoftBank"},
+        @{@"locale": @"ko_KR", @"timezone": @"Asia/Seoul", @"carrier": @"SK Telecom"},
+        @{@"locale": @"zh_CN", @"timezone": @"Asia/Shanghai", @"carrier": @"China Mobile"},
+        @{@"locale": @"zh_TW", @"timezone": @"Asia/Taipei", @"carrier": @"Chunghwa Telecom"},
+        @{@"locale": @"de_DE", @"timezone": @"Europe/Berlin", @"carrier": @"Deutsche Telekom"},
+        @{@"locale": @"fr_FR", @"timezone": @"Europe/Paris", @"carrier": @"Orange"},
+        @{@"locale": @"es_ES", @"timezone": @"Europe/Madrid", @"carrier": @"Movistar"},
+        @{@"locale": @"pt_BR", @"timezone": @"America/Sao_Paulo", @"carrier": @"Vivo"},
+        @{@"locale": @"ru_RU", @"timezone": @"Europe/Moscow", @"carrier": @"MTS"},
+        @{@"locale": @"in_ID", @"timezone": @"Asia/Jakarta", @"carrier": @"Telkomsel"},
+        @{@"locale": @"th_TH", @"timezone": @"Asia/Bangkok", @"carrier": @"AIS"},
+    ];
+    NSDictionary *randomLocale = localeData[arc4random_uniform((uint32_t)localeData.count)];
+    
+    // Boot time: random between 1 hour and 7 days ago (fresh device feel)
+    NSTimeInterval bootOffset = (arc4random_uniform(7 * 24 * 60) + 60) * 60; // 1h to 7d in seconds
+    NSDate *fakeBootTime = [NSDate dateWithTimeIntervalSinceNow:-bootOffset];
+    NSString *bootTimeStr = [NSString stringWithFormat:@"%.0f", [fakeBootTime timeIntervalSince1970]];
+    
+    // Apply all settings
     FakeSettings *settings = [FakeSettings shared];
+    
+    // Device info
     settings.settings[@"systemVersion"] = device[@"ios"];
     settings.settings[@"deviceModel"] = device[@"model"];
     settings.settings[@"deviceName"] = deviceName;
-    settings.settings[@"identifierForVendor"] = uuid;
-    settings.settings[@"bundleVersion"] = device[@"build"]; // Use real iOS build number
+    settings.settings[@"identifierForVendor"] = vendorUUID;
+    settings.settings[@"bundleVersion"] = device[@"build"];
     settings.settings[@"darwinVersion"] = device[@"darwin"];
     settings.settings[@"wifiIP"] = ip;
     
-    // Enable device-related toggles only
+    // NEW: Deep identity
+    settings.settings[@"idfa"] = idfaUUID;
+    settings.settings[@"locale"] = randomLocale[@"locale"];
+    settings.settings[@"timezone"] = randomLocale[@"timezone"];
+    settings.settings[@"carrier"] = randomLocale[@"carrier"];
+    settings.settings[@"bootTime"] = bootTimeStr;
+    
+    // Enable all toggles
     settings.toggles[@"systemVersion"] = @YES;
     settings.toggles[@"deviceModel"] = @YES;
     settings.toggles[@"deviceName"] = @YES;
@@ -675,10 +722,17 @@ static const NSTimeInterval kCacheExpiration = 24 * 60 * 60; // 24 hours
     settings.toggles[@"bundleVersion"] = @YES;
     settings.toggles[@"darwinVersion"] = @YES;
     settings.toggles[@"wifiIP"] = @YES;
+    settings.toggles[@"idfa"] = @YES;
+    settings.toggles[@"locale"] = @YES;
+    settings.toggles[@"timezone"] = @YES;
+    settings.toggles[@"carrier"] = @YES;
+    settings.toggles[@"bootTime"] = @YES;
     settings.toggles[@"keychain"] = @YES;
     settings.toggles[@"jailbreak"] = @YES;
     
-    SafeLog(@"🎲 Random device applied: %@ (%@) iOS %@ Build %@", device[@"name"], device[@"model"], device[@"ios"], device[@"build"]);
+    SafeLog(@"🎲 Deep Random Applied: %@ (%@) iOS %@ | %@ | %@ | %@", 
+            device[@"name"], device[@"model"], device[@"ios"],
+            randomLocale[@"locale"], randomLocale[@"timezone"], randomLocale[@"carrier"]);
 }
 
 - (NSString *)generateRandomUUID {
@@ -828,6 +882,17 @@ int fake_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void *newp,
             if (oldp && oldlenp && *oldlenp >= len) {
                 strcpy((char *)oldp, val);
                 *oldlenp = len;
+                return 0;
+            }
+        }
+        // NEW: Fake boot time to simulate fresh device
+        if ([settings isEnabled:@"bootTime"] && strcmp(name, "kern.boottime") == 0) {
+            NSString *bootTimeStr = [settings valueForKey:@"bootTime"];
+            if (bootTimeStr && oldp && oldlenp && *oldlenp >= sizeof(struct timeval)) {
+                struct timeval *tv = (struct timeval *)oldp;
+                tv->tv_sec = (time_t)[bootTimeStr longLongValue];
+                tv->tv_usec = 0;
+                SafeLog(@"⏰ Faking boot time: %@", bootTimeStr);
                 return 0;
             }
         }
@@ -1012,6 +1077,176 @@ FILE* fake_fopen(const char *path, const char *mode) {
             if ([jbPaths containsObject:path]) return NO;
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] NSFileManager.fileExistsAtPath: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// ============================================================================
+// MARK: - Deep Identity Faking Hooks
+// ============================================================================
+
+// MARK: - Fake IDFA (Advertising Identifier)
+%hook ASIdentifierManager
+- (NSUUID *)advertisingIdentifier {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"idfa"]) {
+            NSString *fakeIDFA = [settings valueForKey:@"idfa"];
+            if (fakeIDFA && fakeIDFA.length > 0) {
+                NSUUID *uuid = [[NSUUID alloc] initWithUUIDString:fakeIDFA];
+                if (uuid) {
+                    SafeLog(@"📺 Faking IDFA: %@", fakeIDFA);
+                    return uuid;
+                }
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] ASIdentifierManager.advertisingIdentifier: %@", e.reason); }
+    return %orig;
+}
+
+- (BOOL)isAdvertisingTrackingEnabled {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"idfa"]) {
+            SafeLog(@"📺 Faking ad tracking: disabled");
+            return NO; // Simulate user disabled ad tracking
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] ASIdentifierManager.isAdvertisingTrackingEnabled: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// MARK: - Fake Locale/Language
+%hook NSLocale
++ (NSLocale *)currentLocale {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"locale"]) {
+            NSString *fakeLocale = [settings valueForKey:@"locale"];
+            if (fakeLocale && fakeLocale.length > 0) {
+                SafeLog(@"🌍 Faking locale: %@", fakeLocale);
+                return [[NSLocale alloc] initWithLocaleIdentifier:fakeLocale];
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] NSLocale.currentLocale: %@", e.reason); }
+    return %orig;
+}
+
++ (NSLocale *)autoupdatingCurrentLocale {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"locale"]) {
+            NSString *fakeLocale = [settings valueForKey:@"locale"];
+            if (fakeLocale && fakeLocale.length > 0) {
+                return [[NSLocale alloc] initWithLocaleIdentifier:fakeLocale];
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] NSLocale.autoupdatingCurrentLocale: %@", e.reason); }
+    return %orig;
+}
+
++ (NSArray *)preferredLanguages {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"locale"]) {
+            NSString *fakeLocale = [settings valueForKey:@"locale"];
+            if (fakeLocale && fakeLocale.length > 0) {
+                // Extract language code from locale (e.g., "en" from "en_US")
+                NSString *langCode = [[fakeLocale componentsSeparatedByString:@"_"] firstObject];
+                return @[langCode, fakeLocale];
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] NSLocale.preferredLanguages: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// MARK: - Fake Timezone
+%hook NSTimeZone
++ (NSTimeZone *)localTimeZone {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"timezone"]) {
+            NSString *fakeTZ = [settings valueForKey:@"timezone"];
+            if (fakeTZ && fakeTZ.length > 0) {
+                NSTimeZone *tz = [NSTimeZone timeZoneWithName:fakeTZ];
+                if (tz) {
+                    SafeLog(@"🕐 Faking timezone: %@", fakeTZ);
+                    return tz;
+                }
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] NSTimeZone.localTimeZone: %@", e.reason); }
+    return %orig;
+}
+
++ (NSTimeZone *)systemTimeZone {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"timezone"]) {
+            NSString *fakeTZ = [settings valueForKey:@"timezone"];
+            if (fakeTZ && fakeTZ.length > 0) {
+                NSTimeZone *tz = [NSTimeZone timeZoneWithName:fakeTZ];
+                if (tz) return tz;
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] NSTimeZone.systemTimeZone: %@", e.reason); }
+    return %orig;
+}
+
++ (NSTimeZone *)defaultTimeZone {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"timezone"]) {
+            NSString *fakeTZ = [settings valueForKey:@"timezone"];
+            if (fakeTZ && fakeTZ.length > 0) {
+                NSTimeZone *tz = [NSTimeZone timeZoneWithName:fakeTZ];
+                if (tz) return tz;
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] NSTimeZone.defaultTimeZone: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// MARK: - Fake Carrier
+%hook CTCarrier
+- (NSString *)carrierName {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"carrier"]) {
+            NSString *fakeCarrier = [settings valueForKey:@"carrier"];
+            if (fakeCarrier && fakeCarrier.length > 0) {
+                SafeLog(@"📶 Faking carrier: %@", fakeCarrier);
+                return fakeCarrier;
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] CTCarrier.carrierName: %@", e.reason); }
+    return %orig;
+}
+
+- (NSString *)isoCountryCode {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"locale"]) {
+            NSString *fakeLocale = [settings valueForKey:@"locale"];
+            if (fakeLocale && fakeLocale.length > 0) {
+                // Extract country code from locale (e.g., "US" from "en_US")
+                NSArray *parts = [fakeLocale componentsSeparatedByString:@"_"];
+                if (parts.count > 1) {
+                    return [parts[1] lowercaseString];
+                }
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] CTCarrier.isoCountryCode: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// MARK: - Fake CTTelephonyNetworkInfo
+%hook CTTelephonyNetworkInfo
+- (CTCarrier *)subscriberCellularProvider {
+    // Return orig but carrier name will be hooked above
     return %orig;
 }
 %end
