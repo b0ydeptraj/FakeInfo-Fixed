@@ -661,9 +661,52 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
         SafeLog(@"🎭 [FakeTweak] FIXED VERSION LOADED! Created by @thanhdo1110");
         
-        // Delay gesture setup to ensure app is ready
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        // Delay to ensure app is ready, then show startup alert
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             SetupGestureRecognizer();
+            
+            // Show startup alert to confirm tweak is working
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"🎭 FakeInfo Loaded!"
+                                                                          message:@"Tweak đã được inject thành công!\n\n• Tap 'Open Settings' để mở cài đặt\n• Hoặc dùng 4 ngón giữ 1.5s"
+                                                                   preferredStyle:UIAlertControllerStyleAlert];
+            
+            [alert addAction:[UIAlertAction actionWithTitle:@"Open Settings" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+                ShowSettingsUI();
+            }]];
+            
+            [alert addAction:[UIAlertAction actionWithTitle:@"Đóng" style:UIAlertActionStyleCancel handler:nil]];
+            
+            // Find top view controller to present alert
+            UIViewController *topVC = nil;
+            if (@available(iOS 13.0, *)) {
+                for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                    if (scene.activationState == UISceneActivationStateForegroundActive) {
+                        for (UIWindow *window in scene.windows) {
+                            if (window.isKeyWindow) {
+                                topVC = window.rootViewController;
+                                while (topVC.presentedViewController) {
+                                    topVC = topVC.presentedViewController;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (!topVC) {
+                #pragma clang diagnostic push
+                #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+                topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+                while (topVC.presentedViewController) {
+                    topVC = topVC.presentedViewController;
+                }
+                #pragma clang diagnostic pop
+            }
+            
+            if (topVC) {
+                [topVC presentViewController:alert animated:YES completion:nil];
+            }
         });
     }
 }
+
