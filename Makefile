@@ -6,8 +6,8 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = FakeInfo
 
 FakeInfo_FILES = Tweak.xm
-FakeInfo_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
-FakeInfo_FRAMEWORKS = UIKit Foundation Security
+FakeInfo_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-variable
+FakeInfo_FRAMEWORKS = UIKit Foundation Security CoreLocation CoreBluetooth CoreMotion AdSupport CoreTelephony SystemConfiguration
 FakeInfo_PRIVATE_FRAMEWORKS = 
 FakeInfo_LIBRARIES = substrate
 
