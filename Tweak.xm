@@ -202,9 +202,10 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     self.view.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.9];
     
     self.settingsKeys = @[@"systemVersion", @"deviceModel", @"deviceName", @"identifierForVendor", 
-                          @"idfa", @"locale", @"timezone", @"carrier",
+                          @"idfa", @"locale", @"timezone", @"carrier", @"mcc", @"mnc",
+                          @"screenWidth", @"screenHeight", @"physicalMemory", @"totalDiskSpace", @"freeDiskSpace", @"batteryLevel",
                           @"bundleIdentifier", @"appVersion", @"bundleVersion", @"displayName", 
-                          @"darwinVersion", @"wifiIP", @"bootTime", @"jailbreak", @"keychain"];
+                          @"darwinVersion", @"wifiIP", @"bootTime", @"jailbreak", @"keychain", @"hardwareInfo"];
     
     self.settingsLabels = @{
         @"systemVersion": @"📱 iOS Version",
@@ -215,6 +216,14 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
         @"locale": @"🌍 Language/Region",
         @"timezone": @"🕐 Timezone",
         @"carrier": @"📶 Carrier Name",
+        @"mcc": @"📡 Mobile Country Code",
+        @"mnc": @"📡 Mobile Network Code",
+        @"screenWidth": @"📐 Screen Width (px)",
+        @"screenHeight": @"📐 Screen Height (px)",
+        @"physicalMemory": @"🧠 RAM (bytes)",
+        @"totalDiskSpace": @"💾 Total Disk (bytes)",
+        @"freeDiskSpace": @"💾 Free Disk (bytes)",
+        @"batteryLevel": @"🔋 Battery Level (0-1)",
         @"bundleIdentifier": @"📦 Bundle ID",
         @"appVersion": @"🏷️ App Version",
         @"bundleVersion": @"🔢 Build Version",
@@ -223,7 +232,8 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
         @"wifiIP": @"📡 WiFi IP",
         @"bootTime": @"⏰ Boot Time (Fresh)",
         @"jailbreak": @"🔓 Hide Jailbreak",
-        @"keychain": @"🔐 Block Keychain"
+        @"keychain": @"🔐 Block Keychain",
+        @"hardwareInfo": @"🛡️ Deep Identity (Screen/RAM/Disk/Analytics)"
     };
     
     // Title label
@@ -327,7 +337,8 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     }
     
     NSString *key = self.settingsKeys[indexPath.row];
-    if ([key isEqualToString:@"jailbreak"] || [key isEqualToString:@"keychain"]) return;
+    // Skip toggle-only fields (don't show edit dialog)
+    if ([key isEqualToString:@"jailbreak"] || [key isEqualToString:@"keychain"] || [key isEqualToString:@"hardwareInfo"]) return;
     
     [self showEditAlertForKey:key];
 }
