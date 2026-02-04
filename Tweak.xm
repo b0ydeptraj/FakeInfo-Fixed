@@ -665,28 +665,28 @@ static const NSTimeInterval kCacheExpiration = 24 * 60 * 60; // 24 hours
     // NEW: Deep Identity Faking - Locale, Timezone, Carrier
     // ============================================================================
     
-    // Locale + Timezone combinations (realistic pairings)
+    // Locale + Timezone + Carrier + MCC/MNC combinations (realistic pairings)
     NSArray *localeData = @[
-        @{@"locale": @"en_US", @"timezone": @"America/New_York", @"carrier": @"AT&T"},
-        @{@"locale": @"en_US", @"timezone": @"America/Los_Angeles", @"carrier": @"Verizon"},
-        @{@"locale": @"en_US", @"timezone": @"America/Chicago", @"carrier": @"T-Mobile"},
-        @{@"locale": @"en_GB", @"timezone": @"Europe/London", @"carrier": @"EE"},
-        @{@"locale": @"en_AU", @"timezone": @"Australia/Sydney", @"carrier": @"Telstra"},
-        @{@"locale": @"vi_VN", @"timezone": @"Asia/Ho_Chi_Minh", @"carrier": @"Viettel"},
-        @{@"locale": @"vi_VN", @"timezone": @"Asia/Ho_Chi_Minh", @"carrier": @"Mobifone"},
-        @{@"locale": @"vi_VN", @"timezone": @"Asia/Ho_Chi_Minh", @"carrier": @"Vinaphone"},
-        @{@"locale": @"ja_JP", @"timezone": @"Asia/Tokyo", @"carrier": @"NTT DOCOMO"},
-        @{@"locale": @"ja_JP", @"timezone": @"Asia/Tokyo", @"carrier": @"SoftBank"},
-        @{@"locale": @"ko_KR", @"timezone": @"Asia/Seoul", @"carrier": @"SK Telecom"},
-        @{@"locale": @"zh_CN", @"timezone": @"Asia/Shanghai", @"carrier": @"China Mobile"},
-        @{@"locale": @"zh_TW", @"timezone": @"Asia/Taipei", @"carrier": @"Chunghwa Telecom"},
-        @{@"locale": @"de_DE", @"timezone": @"Europe/Berlin", @"carrier": @"Deutsche Telekom"},
-        @{@"locale": @"fr_FR", @"timezone": @"Europe/Paris", @"carrier": @"Orange"},
-        @{@"locale": @"es_ES", @"timezone": @"Europe/Madrid", @"carrier": @"Movistar"},
-        @{@"locale": @"pt_BR", @"timezone": @"America/Sao_Paulo", @"carrier": @"Vivo"},
-        @{@"locale": @"ru_RU", @"timezone": @"Europe/Moscow", @"carrier": @"MTS"},
-        @{@"locale": @"in_ID", @"timezone": @"Asia/Jakarta", @"carrier": @"Telkomsel"},
-        @{@"locale": @"th_TH", @"timezone": @"Asia/Bangkok", @"carrier": @"AIS"},
+        @{@"locale": @"en_US", @"timezone": @"America/New_York", @"carrier": @"AT&T", @"mcc": @"310", @"mnc": @"410"},
+        @{@"locale": @"en_US", @"timezone": @"America/Los_Angeles", @"carrier": @"Verizon", @"mcc": @"311", @"mnc": @"480"},
+        @{@"locale": @"en_US", @"timezone": @"America/Chicago", @"carrier": @"T-Mobile", @"mcc": @"310", @"mnc": @"260"},
+        @{@"locale": @"en_GB", @"timezone": @"Europe/London", @"carrier": @"EE", @"mcc": @"234", @"mnc": @"30"},
+        @{@"locale": @"en_AU", @"timezone": @"Australia/Sydney", @"carrier": @"Telstra", @"mcc": @"505", @"mnc": @"01"},
+        @{@"locale": @"vi_VN", @"timezone": @"Asia/Ho_Chi_Minh", @"carrier": @"Viettel", @"mcc": @"452", @"mnc": @"04"},
+        @{@"locale": @"vi_VN", @"timezone": @"Asia/Ho_Chi_Minh", @"carrier": @"Mobifone", @"mcc": @"452", @"mnc": @"01"},
+        @{@"locale": @"vi_VN", @"timezone": @"Asia/Ho_Chi_Minh", @"carrier": @"Vinaphone", @"mcc": @"452", @"mnc": @"02"},
+        @{@"locale": @"ja_JP", @"timezone": @"Asia/Tokyo", @"carrier": @"NTT DOCOMO", @"mcc": @"440", @"mnc": @"10"},
+        @{@"locale": @"ja_JP", @"timezone": @"Asia/Tokyo", @"carrier": @"SoftBank", @"mcc": @"440", @"mnc": @"20"},
+        @{@"locale": @"ko_KR", @"timezone": @"Asia/Seoul", @"carrier": @"SK Telecom", @"mcc": @"450", @"mnc": @"05"},
+        @{@"locale": @"zh_CN", @"timezone": @"Asia/Shanghai", @"carrier": @"China Mobile", @"mcc": @"460", @"mnc": @"00"},
+        @{@"locale": @"zh_TW", @"timezone": @"Asia/Taipei", @"carrier": @"Chunghwa Telecom", @"mcc": @"466", @"mnc": @"92"},
+        @{@"locale": @"de_DE", @"timezone": @"Europe/Berlin", @"carrier": @"Deutsche Telekom", @"mcc": @"262", @"mnc": @"01"},
+        @{@"locale": @"fr_FR", @"timezone": @"Europe/Paris", @"carrier": @"Orange", @"mcc": @"208", @"mnc": @"01"},
+        @{@"locale": @"es_ES", @"timezone": @"Europe/Madrid", @"carrier": @"Movistar", @"mcc": @"214", @"mnc": @"07"},
+        @{@"locale": @"pt_BR", @"timezone": @"America/Sao_Paulo", @"carrier": @"Vivo", @"mcc": @"724", @"mnc": @"06"},
+        @{@"locale": @"ru_RU", @"timezone": @"Europe/Moscow", @"carrier": @"MTS", @"mcc": @"250", @"mnc": @"01"},
+        @{@"locale": @"id_ID", @"timezone": @"Asia/Jakarta", @"carrier": @"Telkomsel", @"mcc": @"510", @"mnc": @"10"},
+        @{@"locale": @"th_TH", @"timezone": @"Asia/Bangkok", @"carrier": @"AIS", @"mcc": @"520", @"mnc": @"01"},
     ];
     NSDictionary *randomLocale = localeData[arc4random_uniform((uint32_t)localeData.count)];
     
@@ -694,6 +694,51 @@ static const NSTimeInterval kCacheExpiration = 24 * 60 * 60; // 24 hours
     NSTimeInterval bootOffset = (arc4random_uniform(7 * 24 * 60) + 60) * 60; // 1h to 7d in seconds
     NSDate *fakeBootTime = [NSDate dateWithTimeIntervalSinceNow:-bootOffset];
     NSString *bootTimeStr = [NSString stringWithFormat:@"%.0f", [fakeBootTime timeIntervalSince1970]];
+    
+    // ============================================================================
+    // NEW: Hardware Fingerprints - Screen, RAM, Storage based on device model
+    // ============================================================================
+    
+    // Device specs database (screen resolution, RAM, storage options)
+    NSDictionary *deviceSpecs = @{
+        // iPhone 16 Series
+        @"iPhone17,2": @{@"screenWidth": @(1320), @"screenHeight": @(2868), @"scale": @(3), @"ram": @(8589934592ULL), @"storage": @[@(268435456000ULL), @(536870912000ULL), @(1099511627776ULL)]},
+        @"iPhone17,1": @{@"screenWidth": @(1206), @"screenHeight": @(2622), @"scale": @(3), @"ram": @(8589934592ULL), @"storage": @[@(134217728000ULL), @(268435456000ULL), @(536870912000ULL)]},
+        @"iPhone17,4": @{@"screenWidth": @(1290), @"screenHeight": @(2796), @"scale": @(3), @"ram": @(8589934592ULL), @"storage": @[@(134217728000ULL), @(268435456000ULL), @(536870912000ULL)]},
+        @"iPhone17,3": @{@"screenWidth": @(1179), @"screenHeight": @(2556), @"scale": @(3), @"ram": @(8589934592ULL), @"storage": @[@(134217728000ULL), @(268435456000ULL), @(536870912000ULL)]},
+        // iPhone 15 Series
+        @"iPhone16,2": @{@"screenWidth": @(1290), @"screenHeight": @(2796), @"scale": @(3), @"ram": @(8589934592ULL), @"storage": @[@(268435456000ULL), @(536870912000ULL), @(1099511627776ULL)]},
+        @"iPhone16,1": @{@"screenWidth": @(1179), @"screenHeight": @(2556), @"scale": @(3), @"ram": @(8589934592ULL), @"storage": @[@(134217728000ULL), @(268435456000ULL), @(536870912000ULL)]},
+        @"iPhone15,5": @{@"screenWidth": @(1284), @"screenHeight": @(2778), @"scale": @(3), @"ram": @(6442450944ULL), @"storage": @[@(134217728000ULL), @(268435456000ULL), @(536870912000ULL)]},
+        @"iPhone15,4": @{@"screenWidth": @(1170), @"screenHeight": @(2532), @"scale": @(3), @"ram": @(6442450944ULL), @"storage": @[@(134217728000ULL), @(268435456000ULL), @(536870912000ULL)]},
+        // iPhone 14 Series
+        @"iPhone15,3": @{@"screenWidth": @(1290), @"screenHeight": @(2796), @"scale": @(3), @"ram": @(6442450944ULL), @"storage": @[@(134217728000ULL), @(268435456000ULL), @(536870912000ULL), @(1099511627776ULL)]},
+        @"iPhone15,2": @{@"screenWidth": @(1179), @"screenHeight": @(2556), @"scale": @(3), @"ram": @(6442450944ULL), @"storage": @[@(134217728000ULL), @(268435456000ULL), @(536870912000ULL), @(1099511627776ULL)]},
+        @"iPhone14,8": @{@"screenWidth": @(1284), @"screenHeight": @(2778), @"scale": @(3), @"ram": @(6442450944ULL), @"storage": @[@(134217728000ULL), @(268435456000ULL), @(536870912000ULL)]},
+        @"iPhone14,7": @{@"screenWidth": @(1170), @"screenHeight": @(2532), @"scale": @(3), @"ram": @(6442450944ULL), @"storage": @[@(134217728000ULL), @(268435456000ULL), @(536870912000ULL)]},
+        // iPhone 13 Series
+        @"iPhone14,3": @{@"screenWidth": @(1284), @"screenHeight": @(2778), @"scale": @(3), @"ram": @(6442450944ULL), @"storage": @[@(134217728000ULL), @(268435456000ULL), @(536870912000ULL), @(1099511627776ULL)]},
+        @"iPhone14,2": @{@"screenWidth": @(1170), @"screenHeight": @(2532), @"scale": @(3), @"ram": @(6442450944ULL), @"storage": @[@(134217728000ULL), @(268435456000ULL), @(536870912000ULL), @(1099511627776ULL)]},
+        @"iPhone14,5": @{@"screenWidth": @(1170), @"screenHeight": @(2532), @"scale": @(3), @"ram": @(4294967296ULL), @"storage": @[@(134217728000ULL), @(268435456000ULL), @(536870912000ULL)]},
+        @"iPhone14,4": @{@"screenWidth": @(1080), @"screenHeight": @(2340), @"scale": @(3), @"ram": @(4294967296ULL), @"storage": @[@(134217728000ULL), @(268435456000ULL), @(536870912000ULL)]},
+    };
+    
+    // Get specs for this device (fallback to iPhone 15 Pro Max specs)
+    NSString *modelId = device[@"model"];
+    NSDictionary *specs = deviceSpecs[modelId];
+    if (!specs) {
+        specs = @{@"screenWidth": @(1290), @"screenHeight": @(2796), @"scale": @(3), @"ram": @(8589934592ULL), @"storage": @[@(268435456000ULL)]};
+    }
+    
+    // Random storage size from available options
+    NSArray *storageOptions = specs[@"storage"];
+    unsigned long long totalStorage = [storageOptions[arc4random_uniform((uint32_t)storageOptions.count)] unsignedLongLongValue];
+    
+    // Free storage: 30% to 70% of total
+    unsigned long long freeStorage = totalStorage * (30 + arc4random_uniform(40)) / 100;
+    
+    // Battery level: 25% to 95% (never 100% or too low)
+    float batteryLevel = (25 + arc4random_uniform(70)) / 100.0f;
     
     // Apply all settings
     FakeSettings *settings = [FakeSettings shared];
@@ -707,12 +752,23 @@ static const NSTimeInterval kCacheExpiration = 24 * 60 * 60; // 24 hours
     settings.settings[@"darwinVersion"] = device[@"darwin"];
     settings.settings[@"wifiIP"] = ip;
     
-    // NEW: Deep identity
+    // Deep identity
     settings.settings[@"idfa"] = idfaUUID;
     settings.settings[@"locale"] = randomLocale[@"locale"];
     settings.settings[@"timezone"] = randomLocale[@"timezone"];
     settings.settings[@"carrier"] = randomLocale[@"carrier"];
+    settings.settings[@"mcc"] = randomLocale[@"mcc"];
+    settings.settings[@"mnc"] = randomLocale[@"mnc"];
     settings.settings[@"bootTime"] = bootTimeStr;
+    
+    // NEW: Hardware fingerprints
+    settings.settings[@"screenWidth"] = [NSString stringWithFormat:@"%@", specs[@"screenWidth"]];
+    settings.settings[@"screenHeight"] = [NSString stringWithFormat:@"%@", specs[@"screenHeight"]];
+    settings.settings[@"screenScale"] = [NSString stringWithFormat:@"%@", specs[@"scale"]];
+    settings.settings[@"physicalMemory"] = [NSString stringWithFormat:@"%llu", [specs[@"ram"] unsignedLongLongValue]];
+    settings.settings[@"totalDiskSpace"] = [NSString stringWithFormat:@"%llu", totalStorage];
+    settings.settings[@"freeDiskSpace"] = [NSString stringWithFormat:@"%llu", freeStorage];
+    settings.settings[@"batteryLevel"] = [NSString stringWithFormat:@"%.2f", batteryLevel];
     
     // Enable all toggles
     settings.toggles[@"systemVersion"] = @YES;
@@ -729,10 +785,15 @@ static const NSTimeInterval kCacheExpiration = 24 * 60 * 60; // 24 hours
     settings.toggles[@"bootTime"] = @YES;
     settings.toggles[@"keychain"] = @YES;
     settings.toggles[@"jailbreak"] = @YES;
+    settings.toggles[@"hardwareInfo"] = @YES; // NEW: Enable hardware fingerprinting
     
-    SafeLog(@"🎲 Deep Random Applied: %@ (%@) iOS %@ | %@ | %@ | %@", 
+    SafeLog(@"🎲 Deep Random Applied: %@ (%@) iOS %@ | %@ | %@ | Screen: %@x%@ | RAM: %lluGB | Storage: %lluGB/%lluGB | Battery: %.0f%%", 
             device[@"name"], device[@"model"], device[@"ios"],
-            randomLocale[@"locale"], randomLocale[@"timezone"], randomLocale[@"carrier"]);
+            randomLocale[@"locale"], randomLocale[@"carrier"],
+            specs[@"screenWidth"], specs[@"screenHeight"],
+            [specs[@"ram"] unsignedLongLongValue] / 1073741824ULL,
+            freeStorage / 1073741824ULL, totalStorage / 1073741824ULL,
+            batteryLevel * 100);
 }
 
 - (NSString *)generateRandomUUID {
@@ -1241,13 +1302,179 @@ FILE* fake_fopen(const char *path, const char *mode) {
     } @catch(NSException *e) { SafeLog(@"[CRASH] CTCarrier.isoCountryCode: %@", e.reason); }
     return %orig;
 }
+
+// NEW: MCC/MNC hooks for anti-fraud detection
+- (NSString *)mobileCountryCode {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"carrier"]) {
+            NSString *fakeMCC = [settings valueForKey:@"mcc"];
+            if (fakeMCC && fakeMCC.length > 0) {
+                SafeLog(@"📶 Faking MCC: %@", fakeMCC);
+                return fakeMCC;
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] CTCarrier.mobileCountryCode: %@", e.reason); }
+    return %orig;
+}
+
+- (NSString *)mobileNetworkCode {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"carrier"]) {
+            NSString *fakeMNC = [settings valueForKey:@"mnc"];
+            if (fakeMNC && fakeMNC.length > 0) {
+                SafeLog(@"📶 Faking MNC: %@", fakeMNC);
+                return fakeMNC;
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] CTCarrier.mobileNetworkCode: %@", e.reason); }
+    return %orig;
+}
 %end
 
 // MARK: - Fake CTTelephonyNetworkInfo
 %hook CTTelephonyNetworkInfo
 - (CTCarrier *)subscriberCellularProvider {
-    // Return orig but carrier name will be hooked above
+    // Return orig but carrier properties will be hooked above
     return %orig;
+}
+%end
+
+// ============================================================================
+// MARK: - Hardware Fingerprint Hooks (Screen, RAM, Storage, Battery)
+// ============================================================================
+
+// MARK: - Fake UIScreen (Screen Resolution)
+%hook UIScreen
+- (CGRect)bounds {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *widthStr = [settings valueForKey:@"screenWidth"];
+            NSString *heightStr = [settings valueForKey:@"screenHeight"];
+            NSString *scaleStr = [settings valueForKey:@"screenScale"];
+            if (widthStr && heightStr && scaleStr) {
+                CGFloat scale = [scaleStr floatValue];
+                CGFloat width = [widthStr floatValue] / scale;
+                CGFloat height = [heightStr floatValue] / scale;
+                SafeLog(@"📱 Faking screen bounds: %.0fx%.0f", width, height);
+                return CGRectMake(0, 0, width, height);
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] UIScreen.bounds: %@", e.reason); }
+    return %orig;
+}
+
+- (CGRect)nativeBounds {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *widthStr = [settings valueForKey:@"screenWidth"];
+            NSString *heightStr = [settings valueForKey:@"screenHeight"];
+            if (widthStr && heightStr) {
+                CGFloat width = [widthStr floatValue];
+                CGFloat height = [heightStr floatValue];
+                SafeLog(@"📱 Faking native bounds: %.0fx%.0f", width, height);
+                return CGRectMake(0, 0, width, height);
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] UIScreen.nativeBounds: %@", e.reason); }
+    return %orig;
+}
+
+- (CGFloat)scale {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *scaleStr = [settings valueForKey:@"screenScale"];
+            if (scaleStr) {
+                return [scaleStr floatValue];
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] UIScreen.scale: %@", e.reason); }
+    return %orig;
+}
+
+- (CGFloat)nativeScale {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *scaleStr = [settings valueForKey:@"screenScale"];
+            if (scaleStr) {
+                return [scaleStr floatValue];
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] UIScreen.nativeScale: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// MARK: - Fake NSProcessInfo (RAM, Thermal State)
+%hook NSProcessInfo
+- (unsigned long long)physicalMemory {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *ramStr = [settings valueForKey:@"physicalMemory"];
+            if (ramStr) {
+                unsigned long long ram = strtoull([ramStr UTF8String], NULL, 10);
+                SafeLog(@"🧠 Faking RAM: %llu bytes (%.1f GB)", ram, ram / 1073741824.0);
+                return ram;
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] NSProcessInfo.physicalMemory: %@", e.reason); }
+    return %orig;
+}
+
+- (NSProcessInfoThermalState)thermalState {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            // Always return nominal - fresh device feeling
+            return NSProcessInfoThermalStateNominal;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] NSProcessInfo.thermalState: %@", e.reason); }
+    return %orig;
+}
+
+- (BOOL)isLowPowerModeEnabled {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            // Fresh device = not in low power mode
+            return NO;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] NSProcessInfo.isLowPowerModeEnabled: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// MARK: - Fake UIDevice (Battery Level)
+// Note: UIDevice already hooked above for systemVersion, model, name, identifierForVendor
+// Adding battery hooks to existing UIDevice hook is complex, so we use a separate approach
+
+// MARK: - Fake NSFileManager (Disk Space)
+%hook NSFileManager
+- (NSDictionary *)attributesOfFileSystemForPath:(NSString *)path error:(NSError **)error {
+    NSDictionary *orig = %orig;
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"] && orig) {
+            NSString *totalStr = [settings valueForKey:@"totalDiskSpace"];
+            NSString *freeStr = [settings valueForKey:@"freeDiskSpace"];
+            if (totalStr && freeStr) {
+                NSMutableDictionary *fakeDict = [orig mutableCopy];
+                unsigned long long total = strtoull([totalStr UTF8String], NULL, 10);
+                unsigned long long free = strtoull([freeStr UTF8String], NULL, 10);
+                fakeDict[NSFileSystemSize] = @(total);
+                fakeDict[NSFileSystemFreeSize] = @(free);
+                SafeLog(@"💾 Faking disk: %.1fGB free / %.1fGB total", free / 1073741824.0, total / 1073741824.0);
+                return fakeDict;
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] NSFileManager.attributesOfFileSystemForPath: %@", e.reason); }
+    return orig;
 }
 %end
 
