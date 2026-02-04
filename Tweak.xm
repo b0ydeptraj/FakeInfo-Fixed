@@ -1478,6 +1478,195 @@ FILE* fake_fopen(const char *path, const char *mode) {
 }
 %end
 
+// ============================================================================
+// MARK: - Phase 3: App Persistence Data Hooks
+// ============================================================================
+
+// MARK: - Fake UIPasteboard (Clear clipboard - apps use for cross-app tracking)
+%hook UIPasteboard
+- (NSArray *)items {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            SafeLog(@"📋 UIPasteboard.items blocked - returning empty");
+            return @[];
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] UIPasteboard.items: %@", e.reason); }
+    return %orig;
+}
+
+- (NSString *)string {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            return nil; // Fresh clipboard
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] UIPasteboard.string: %@", e.reason); }
+    return %orig;
+}
+
+- (NSArray *)strings {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            return @[];
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] UIPasteboard.strings: %@", e.reason); }
+    return %orig;
+}
+
+- (NSURL *)URL {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            return nil;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] UIPasteboard.URL: %@", e.reason); }
+    return %orig;
+}
+
+- (NSArray *)URLs {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            return @[];
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] UIPasteboard.URLs: %@", e.reason); }
+    return %orig;
+}
+
+- (BOOL)hasStrings {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            return NO;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] UIPasteboard.hasStrings: %@", e.reason); }
+    return %orig;
+}
+
+- (BOOL)hasURLs {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            return NO;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] UIPasteboard.hasURLs: %@", e.reason); }
+    return %orig;
+}
+
+- (BOOL)hasImages {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            return NO;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] UIPasteboard.hasImages: %@", e.reason); }
+    return %orig;
+}
+
+- (NSInteger)numberOfItems {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            return 0;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] UIPasteboard.numberOfItems: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// MARK: - Fake App Installation Date (NSFileManager attributesOfItemAtPath for app bundle)
+%hook NSFileManager
+- (NSDictionary *)attributesOfItemAtPath:(NSString *)path error:(NSError **)error {
+    NSDictionary *orig = %orig;
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"] && orig && path) {
+            NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
+            // If this is the app bundle or inside it, fake the creation date
+            if ([path hasPrefix:bundlePath] || [path isEqualToString:bundlePath]) {
+                NSMutableDictionary *fakeDict = [orig mutableCopy];
+                // Fake app installed 1-24 hours ago
+                NSTimeInterval hoursAgo = (arc4random_uniform(24) + 1) * 3600;
+                NSDate *fakeDate = [NSDate dateWithTimeIntervalSinceNow:-hoursAgo];
+                fakeDict[NSFileCreationDate] = fakeDate;
+                fakeDict[NSFileModificationDate] = fakeDate;
+                SafeLog(@"📅 Faking app install date: %@", fakeDate);
+                return fakeDict;
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] NSFileManager.attributesOfItemAtPath: %@", e.reason); }
+    return orig;
+}
+%end
+
+// MARK: - Block Apple DeviceCheck (strongest anti-fraud API)
+// DeviceCheck requires DeviceCheck.framework which may not be available on all devices
+// We hook DCDevice if available
+%hook DCDevice
++ (DCDevice *)currentDevice {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            SafeLog(@"🛡️ DCDevice.currentDevice blocked - returning nil");
+            return nil; // No DeviceCheck support = fresh device
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] DCDevice.currentDevice: %@", e.reason); }
+    return %orig;
+}
+
+- (BOOL)isSupported {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            SafeLog(@"🛡️ DCDevice.isSupported blocked - returning NO");
+            return NO; // Device doesn't support DeviceCheck
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] DCDevice.isSupported: %@", e.reason); }
+    return %orig;
+}
+
+- (void)generateTokenWithCompletionHandler:(void (^)(NSData *token, NSError *error))completion {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            SafeLog(@"🛡️ DCDevice.generateToken blocked - returning error");
+            if (completion) {
+                NSError *err = [NSError errorWithDomain:@"DCErrorDomain" code:1 userInfo:@{NSLocalizedDescriptionKey: @"DeviceCheck not available"}];
+                completion(nil, err);
+            }
+            return;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] DCDevice.generateToken: %@", e.reason); }
+    %orig;
+}
+%end
+
+// MARK: - Block AppAttest (iOS 14+ fraud detection)
+%hook DCAppAttestService
++ (DCAppAttestService *)sharedService {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            SafeLog(@"🛡️ DCAppAttestService.sharedService blocked");
+            return nil;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] DCAppAttestService.sharedService: %@", e.reason); }
+    return %orig;
+}
+
+- (BOOL)isSupported {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            return NO;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] DCAppAttestService.isSupported: %@", e.reason); }
+    return %orig;
+}
+%end
+
 // MARK: - Fake Keychain (to make app think device is fresh/new)
 OSStatus fake_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
     @try {
