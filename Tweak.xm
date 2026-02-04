@@ -1667,6 +1667,203 @@ FILE* fake_fopen(const char *path, const char *mode) {
 }
 %end
 
+// ============================================================================
+// MARK: - Phase 4: Analytics SDK Blocking (Prevent cross-app tracking)
+// ============================================================================
+
+// MARK: - Block AppsFlyer SDK
+%hook AppsFlyerLib
+- (NSString *)getAppsFlyerUID {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeUID = [[NSUUID UUID] UUIDString];
+            SafeLog(@"📊 AppsFlyer UID faked: %@", fakeUID);
+            return fakeUID;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] AppsFlyerLib.getAppsFlyerUID: %@", e.reason); }
+    return %orig;
+}
+
++ (AppsFlyerLib *)shared {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            // Return orig but with faked UID
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] AppsFlyerLib.shared: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// MARK: - Block Adjust SDK
+%hook Adjust
++ (NSString *)adid {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeADID = [[NSUUID UUID] UUIDString];
+            SafeLog(@"📊 Adjust ADID faked: %@", fakeADID);
+            return fakeADID;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] Adjust.adid: %@", e.reason); }
+    return %orig;
+}
+%end
+
+%hook ADJConfig
+- (NSString *)appToken {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            SafeLog(@"📊 Adjust appToken blocked");
+            return nil;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] ADJConfig.appToken: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// MARK: - Block Facebook SDK Analytics
+%hook FBSDKAppEvents
++ (void)activateApp {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            SafeLog(@"📊 Facebook activateApp blocked");
+            return; // Don't activate
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] FBSDKAppEvents.activateApp: %@", e.reason); }
+    %orig;
+}
+
++ (NSString *)anonymousID {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = [[NSUUID UUID] UUIDString];
+            SafeLog(@"📊 Facebook anonymousID faked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] FBSDKAppEvents.anonymousID: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// MARK: - Block Firebase Analytics
+%hook FIRAnalytics
++ (void)logEventWithName:(NSString *)name parameters:(NSDictionary *)parameters {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            SafeLog(@"📊 Firebase analytics event blocked: %@", name);
+            return; // Don't log
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] FIRAnalytics.logEventWithName: %@", e.reason); }
+    %orig;
+}
+
++ (NSString *)appInstanceID {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = [[NSUUID UUID] UUIDString];
+            SafeLog(@"📊 Firebase appInstanceID faked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] FIRAnalytics.appInstanceID: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// MARK: - Block Branch.io SDK
+%hook Branch
+- (NSString *)getFirstReferringParams {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            SafeLog(@"📊 Branch firstReferringParams blocked");
+            return nil;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] Branch.getFirstReferringParams: %@", e.reason); }
+    return %orig;
+}
+
++ (Branch *)getInstance {
+    return %orig; // Allow instance but block tracking methods
+}
+%end
+
+// MARK: - Block Mixpanel SDK
+%hook Mixpanel
+- (NSString *)distinctId {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = [[NSUUID UUID] UUIDString];
+            SafeLog(@"📊 Mixpanel distinctId faked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] Mixpanel.distinctId: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// MARK: - Block Amplitude SDK
+%hook Amplitude
+- (NSString *)getDeviceId {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = [[NSUUID UUID] UUIDString];
+            SafeLog(@"📊 Amplitude deviceId faked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] Amplitude.getDeviceId: %@", e.reason); }
+    return %orig;
+}
+
+- (NSString *)getUserId {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            return nil; // No user ID
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] Amplitude.getUserId: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// MARK: - Block Singular SDK
+%hook Singular
++ (NSString *)getSingularDeviceId {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = [[NSUUID UUID] UUIDString];
+            SafeLog(@"📊 Singular deviceId faked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] Singular.getSingularDeviceId: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// MARK: - Block Kochava SDK
+%hook KochavaTracker
+- (NSString *)deviceIdString {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = [[NSUUID UUID] UUIDString];
+            SafeLog(@"📊 Kochava deviceId faked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] KochavaTracker.deviceIdString: %@", e.reason); }
+    return %orig;
+}
+%end
+
 // MARK: - Fake Keychain (to make app think device is fresh/new)
 OSStatus fake_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
     @try {
