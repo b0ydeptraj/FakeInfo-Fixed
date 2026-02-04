@@ -2063,61 +2063,21 @@ FILE* fake_fopen(const char *path, const char *mode) {
 // MARK: - Phase 7: VPN/Proxy Detection Bypass
 // ============================================================================
 
-// Block VPN detection by hiding utun interfaces
-// Already handled in getifaddrs hook - adding flag check here
-
-%hook SCNetworkReachability
-// Note: SCNetworkReachability is C-based, need to hook via MSHookFunction if needed
-%end
+// VPN detection bypass is handled in getifaddrs hook above
+// SCNetworkReachability is C-based, cannot be hooked with %hook
 
 // ============================================================================
 // MARK: - Phase 8: Sensor Data Faking (Behavioral fingerprinting)
 // ============================================================================
 
-%hook CMMotionManager
-- (CMAccelerometerData *)accelerometerData {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"🎯 Accelerometer data intercepted");
-            // Return slightly randomized data to prevent sensor fingerprinting
-        }
-    } @catch(NSException *e) {}
-    return %orig;
-}
-
-- (CMGyroData *)gyroData {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"🎯 Gyro data intercepted");
-        }
-    } @catch(NSException *e) {}
-    return %orig;
-}
-
-- (BOOL)isAccelerometerAvailable {
-    return YES;
-}
-
-- (BOOL)isGyroAvailable {
-    return YES;
-}
-
-- (BOOL)isDeviceMotionAvailable {
-    return YES;
-}
-%end
+// Note: CMMotionManager hooks removed to avoid compilation issues
+// Sensor fingerprinting is less common on iOS
 
 // ============================================================================
 // MARK: - Phase 9: Emulator/Simulator Detection Bypass
 // ============================================================================
 
-%hook UIDevice
-- (BOOL)isSimulator {
-    return NO; // Always return real device
-}
-%end
+// Simulator detection bypass handled via sysctlbyname hw.machine hook above
 
 // Additional simulator detection bypass via model check already in sysctlbyname
 
@@ -2158,18 +2118,8 @@ FILE* fake_fopen(const char *path, const char *mode) {
 // MARK: - Phase 12: Bluetooth Device Detection
 // ============================================================================
 
-%hook CBCentralManager
-- (CBManagerState)state {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"📶 Bluetooth state intercepted");
-            return CBManagerStatePoweredOn; // Appear as normal device
-        }
-    } @catch(NSException *e) {}
-    return %orig;
-}
-%end
+// Note: CBCentralManager hook removed to avoid compilation issues
+// Bluetooth fingerprinting is less common
 
 // ============================================================================
 // MARK: - Phase 13: App Install Source Detection
