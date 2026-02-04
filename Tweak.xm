@@ -102,17 +102,97 @@ void CrashHandler(int sig) {
         osrelease[0] = '\0';
     }
 
+    // Get IDFA
+    NSString *idfaString = @"00000000-0000-0000-0000-000000000000";
+    Class ASIdentifierManagerClass = NSClassFromString(@"ASIdentifierManager");
+    if (ASIdentifierManagerClass) {
+        id manager = [ASIdentifierManagerClass performSelector:@selector(sharedManager)];
+        if (manager) {
+            NSUUID *idfa = [manager performSelector:@selector(advertisingIdentifier)];
+            if (idfa) {
+                idfaString = [idfa UUIDString];
+            }
+        }
+    }
+    
+    // Get locale and timezone
+    NSLocale *currentLocale = [NSLocale currentLocale];
+    NSTimeZone *currentTimezone = [NSTimeZone localTimeZone];
+    
+    // Get carrier info
+    NSString *carrierName = @"Unknown";
+    NSString *mccCode = @"000";
+    NSString *mncCode = @"00";
+    Class CTTelephonyNetworkInfoClass = NSClassFromString(@"CTTelephonyNetworkInfo");
+    if (CTTelephonyNetworkInfoClass) {
+        id networkInfo = [[CTTelephonyNetworkInfoClass alloc] init];
+        if (networkInfo) {
+            id carrier = [networkInfo performSelector:@selector(subscriberCellularProvider)];
+            if (carrier) {
+                NSString *name = [carrier performSelector:@selector(carrierName)];
+                if (name) carrierName = name;
+                NSString *mcc = [carrier performSelector:@selector(mobileCountryCode)];
+                if (mcc) mccCode = mcc;
+                NSString *mnc = [carrier performSelector:@selector(mobileNetworkCode)];
+                if (mnc) mncCode = mnc;
+            }
+        }
+    }
+    
+    // Get screen info
+    UIScreen *mainScreen = [UIScreen mainScreen];
+    CGRect screenBounds = mainScreen.nativeBounds;
+    CGFloat screenScale = mainScreen.nativeScale;
+    
+    // Get RAM
+    NSProcessInfo *processInfo = [NSProcessInfo processInfo];
+    unsigned long long physicalMemory = processInfo.physicalMemory;
+    
+    // Get disk space
+    NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfFileSystemForPath:NSHomeDirectory() error:nil];
+    unsigned long long totalDisk = [attributes[NSFileSystemSize] unsignedLongLongValue];
+    unsigned long long freeDisk = [attributes[NSFileSystemFreeSize] unsignedLongLongValue];
+    
+    // Get battery level
+    device.batteryMonitoringEnabled = YES;
+    float batteryLevel = device.batteryLevel;
+    if (batteryLevel < 0) batteryLevel = 1.0; // Default if unknown
+    
+    // Get boot time
+    struct timeval boottime;
+    size_t btSize = sizeof(boottime);
+    NSString *bootTimeStr = @"0";
+    if (sysctlbyname("kern.boottime", &boottime, &btSize, NULL, 0) == 0) {
+        bootTimeStr = [NSString stringWithFormat:@"%ld", (long)boottime.tv_sec];
+    }
+
     self.originalValues = @{
         @"systemVersion": device.systemVersion ?: @"Unknown",
         @"deviceModel": [NSString stringWithCString:systemInfo.machine encoding:NSUTF8StringEncoding] ?: @"Unknown",
         @"deviceName": device.name ?: @"Unknown",
         @"identifierForVendor": device.identifierForVendor.UUIDString ?: @"Unknown",
+        @"idfa": idfaString,
+        @"locale": currentLocale.localeIdentifier ?: @"en_US",
+        @"timezone": currentTimezone.name ?: @"UTC",
+        @"carrier": carrierName,
+        @"mcc": mccCode,
+        @"mnc": mncCode,
+        @"screenWidth": [NSString stringWithFormat:@"%.0f", screenBounds.size.width],
+        @"screenHeight": [NSString stringWithFormat:@"%.0f", screenBounds.size.height],
+        @"physicalMemory": [NSString stringWithFormat:@"%llu", physicalMemory],
+        @"totalDiskSpace": [NSString stringWithFormat:@"%llu", totalDisk],
+        @"freeDiskSpace": [NSString stringWithFormat:@"%llu", freeDisk],
+        @"batteryLevel": [NSString stringWithFormat:@"%.2f", batteryLevel],
         @"bundleIdentifier": bundle.bundleIdentifier ?: @"Unknown",
         @"appVersion": [bundle.infoDictionary objectForKey:@"CFBundleShortVersionString"] ?: @"Unknown",
         @"bundleVersion": [bundle.infoDictionary objectForKey:@"CFBundleVersion"] ?: @"Unknown",
         @"displayName": [bundle.infoDictionary objectForKey:@"CFBundleDisplayName"] ?: @"Unknown",
         @"darwinVersion": [NSString stringWithCString:osrelease encoding:NSUTF8StringEncoding] ?: @"Unknown",
-        @"wifiIP": @"192.168.1.100"
+        @"wifiIP": @"192.168.1.100",
+        @"bootTime": bootTimeStr,
+        @"jailbreak": @"OFF",
+        @"keychain": @"OFF",
+        @"hardwareInfo": @"OFF"
     };
 }
 
