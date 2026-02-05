@@ -199,24 +199,50 @@ void CrashHandler(int sig) {
     };
 }
 
+// Per-app unique key based on bundle identifier
+- (NSString *)settingsKeyForBundle {
+    NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown";
+    return [NSString stringWithFormat:@"FakeSettings_%@", bundleId];
+}
+
+- (NSString *)togglesKeyForBundle {
+    NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown";
+    return [NSString stringWithFormat:@"FakeToggles_%@", bundleId];
+}
+
 - (void)loadSettings {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    self.settings = [[defaults objectForKey:@"FakeSettings"] mutableCopy] ?: [NSMutableDictionary dictionary];
-    self.toggles = [[defaults objectForKey:@"FakeToggles"] mutableCopy] ?: [NSMutableDictionary dictionary];
+    NSString *settingsKey = [self settingsKeyForBundle];
+    NSString *togglesKey = [self togglesKeyForBundle];
+    
+    self.settings = [[defaults objectForKey:settingsKey] mutableCopy] ?: [NSMutableDictionary dictionary];
+    self.toggles = [[defaults objectForKey:togglesKey] mutableCopy] ?: [NSMutableDictionary dictionary];
+    
+    // Initialize default toggles
     if (!self.toggles[@"jailbreak"]) self.toggles[@"jailbreak"] = @NO;
+    if (!self.toggles[@"keychain"]) self.toggles[@"keychain"] = @NO;
+    if (!self.toggles[@"hardwareInfo"]) self.toggles[@"hardwareInfo"] = @NO;
+    
+    SafeLog(@"📱 Loaded settings for bundle: %@", [[NSBundle mainBundle] bundleIdentifier]);
 }
 
 - (void)saveSettings {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    [defaults setObject:self.settings forKey:@"FakeSettings"];
-    [defaults setObject:self.toggles forKey:@"FakeToggles"];
+    NSString *settingsKey = [self settingsKeyForBundle];
+    NSString *togglesKey = [self togglesKeyForBundle];
+    
+    [defaults setObject:self.settings forKey:settingsKey];
+    [defaults setObject:self.toggles forKey:togglesKey];
     [defaults synchronize];
+    
+    SafeLog(@"💾 Saved settings for bundle: %@", [[NSBundle mainBundle] bundleIdentifier]);
 }
 
 - (void)resetSettings {
     self.settings = [NSMutableDictionary dictionary];
     self.toggles = [NSMutableDictionary dictionary];
     [self saveSettings];
+    SafeLog(@"🔄 Reset settings for bundle: %@", [[NSBundle mainBundle] bundleIdentifier]);
 }
 
 - (BOOL)isEnabled:(NSString *)key {
@@ -2132,6 +2158,167 @@ FILE* fake_fopen(const char *path, const char *mode) {
         if ([settings isEnabled:@"hardwareInfo"]) {
             // Return valid-looking receipt URL to appear as App Store install
             SafeLog(@"🏪 appStoreReceiptURL intercepted");
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+%end
+
+// ============================================================================
+// MARK: - Phase 14: Enhanced Jailbreak Detection Bypass
+// ============================================================================
+
+// Jailbreak URL schemes to block
+static NSArray *jailbreakURLSchemes = nil;
+static NSArray *jailbreakFilePaths = nil;
+
+__attribute__((constructor)) static void initJailbreakPaths() {
+    jailbreakURLSchemes = @[
+        @"cydia", @"sileo", @"zbra", @"filza", @"activator",
+        @"undecimus", @"apt-repo", @"installer", @"icy"
+    ];
+    
+    jailbreakFilePaths = @[
+        @"/Applications/Cydia.app",
+        @"/Applications/Sileo.app",
+        @"/Applications/Zebra.app",
+        @"/Applications/Filza.app",
+        @"/private/var/lib/apt",
+        @"/private/var/lib/cydia",
+        @"/private/var/mobile/Library/SBSettings",
+        @"/private/var/stash",
+        @"/var/lib/apt",
+        @"/var/lib/cydia",
+        @"/var/cache/apt",
+        @"/var/log/syslog",
+        @"/bin/bash",
+        @"/bin/sh",
+        @"/usr/sbin/sshd",
+        @"/usr/bin/sshd",
+        @"/usr/libexec/sftp-server",
+        @"/etc/apt",
+        @"/etc/ssh/sshd_config",
+        @"/Library/MobileSubstrate",
+        @"/Library/MobileSubstrate/MobileSubstrate.dylib",
+        @"/Library/MobileSubstrate/DynamicLibraries",
+        @"/System/Library/LaunchDaemons/com.saurik.Cydia.Startup.plist",
+        @"/System/Library/LaunchDaemons/com.ikey.bbot.plist",
+        @"/private/var/tmp/cydia.log",
+        @"/usr/bin/cycript",
+        @"/usr/local/bin/cycript",
+        @"/usr/bin/ssh",
+        @"/.installed_unc0ver",
+        @"/.bootstrapped_electra",
+        @"/private/var/jb"  // rootless jailbreak
+    ];
+}
+
+// Hook UIApplication canOpenURL to block jailbreak app detection
+%hook UIApplication
+- (BOOL)canOpenURL:(NSURL *)url {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"jailbreak"] && url) {
+            NSString *scheme = url.scheme.lowercaseString;
+            if ([jailbreakURLSchemes containsObject:scheme]) {
+                SafeLog(@"🛡️ canOpenURL blocked for jailbreak scheme: %@", scheme);
+                return NO;
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] canOpenURL: %@", e.reason); }
+    return %orig;
+}
+%end
+
+// Hook NSFileManager to hide jailbreak files
+%hook NSFileManager
+- (BOOL)fileExistsAtPath:(NSString *)path {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"jailbreak"] && path) {
+            for (NSString *jbPath in jailbreakFilePaths) {
+                if ([path hasPrefix:jbPath] || [path isEqualToString:jbPath]) {
+                    SafeLog(@"🛡️ fileExistsAtPath hidden: %@", path);
+                    return NO;
+                }
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] fileExistsAtPath: %@", e.reason); }
+    return %orig;
+}
+
+- (BOOL)fileExistsAtPath:(NSString *)path isDirectory:(BOOL *)isDirectory {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"jailbreak"] && path) {
+            for (NSString *jbPath in jailbreakFilePaths) {
+                if ([path hasPrefix:jbPath] || [path isEqualToString:jbPath]) {
+                    SafeLog(@"🛡️ fileExistsAtPath:isDirectory hidden: %@", path);
+                    if (isDirectory) *isDirectory = NO;
+                    return NO;
+                }
+            }
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+
+- (NSArray *)contentsOfDirectoryAtPath:(NSString *)path error:(NSError **)error {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"jailbreak"]) {
+            // Hide /Applications jailbreak apps
+            if ([path isEqualToString:@"/Applications"]) {
+                NSArray *orig = %orig;
+                NSMutableArray *filtered = [NSMutableArray array];
+                NSArray *hiddenApps = @[@"Cydia.app", @"Sileo.app", @"Zebra.app", @"Filza.app", @"NewTerm.app"];
+                for (NSString *item in orig) {
+                    if (![hiddenApps containsObject:item]) {
+                        [filtered addObject:item];
+                    }
+                }
+                SafeLog(@"🛡️ Filtered /Applications directory");
+                return filtered;
+            }
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+%end
+
+// Hook NSBundle for info dictionary checks
+%hook NSBundle
+- (id)objectForInfoDictionaryKey:(NSString *)key {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"jailbreak"]) {
+            // Some apps check for specific keys that might indicate jailbreak
+            if ([key isEqualToString:@"SignerIdentity"]) {
+                return nil; // Hide sideload identity
+            }
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+%end
+
+// ============================================================================
+// MARK: - Phase 15: Process and Library Detection Bypass
+// ============================================================================
+
+%hook NSProcessInfo
+- (NSDictionary *)environment {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"jailbreak"]) {
+            NSMutableDictionary *env = [%orig mutableCopy];
+            // Remove DYLD_ environment variables that indicate injection
+            NSArray *keysToRemove = @[@"DYLD_INSERT_LIBRARIES", @"DYLD_FRAMEWORK_PATH", @"DYLD_LIBRARY_PATH"];
+            for (NSString *key in keysToRemove) {
+                [env removeObjectForKey:key];
+            }
+            SafeLog(@"🛡️ Cleaned environment variables");
+            return env;
         }
     } @catch(NSException *e) {}
     return %orig;
