@@ -1231,6 +1231,20 @@ FILE* fake_fopen(const char *path, const char *mode) {
     } @catch(NSException *e) { SafeLog(@"[CRASH] NSBundle.infoDictionary: %@", e.reason); }
     return %orig;
 }
+
+- (id)objectForInfoDictionaryKey:(NSString *)key {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"jailbreak"]) {
+            // Hide sideload/jailbreak indicators
+            if ([key isEqualToString:@"SignerIdentity"]) {
+                SafeLog(@"🛡️ objectForInfoDictionaryKey hidden: %@", key);
+                return nil;
+            }
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
 %end
 
 // MARK: - Fake NSProcessInfo Hook
@@ -1253,11 +1267,52 @@ FILE* fake_fopen(const char *path, const char *mode) {
 - (BOOL)fileExistsAtPath:(NSString *)path {
     @try {
         FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"jailbreak"]) {
-            NSArray *jbPaths = @[@"/Applications/Cydia.app", @"/usr/sbin/sshd", @"/bin/bash", @"/etc/apt", @"/private/var/lib/apt/", @"/Library/MobileSubstrate/MobileSubstrate.dylib"];
-            if ([jbPaths containsObject:path]) return NO;
+        if ([settings isEnabled:@"jailbreak"] && path && jailbreakFilePaths) {
+            for (NSString *jbPath in jailbreakFilePaths) {
+                if ([path hasPrefix:jbPath] || [path isEqualToString:jbPath]) {
+                    SafeLog(@"🛡️ fileExistsAtPath hidden: %@", path);
+                    return NO;
+                }
+            }
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] NSFileManager.fileExistsAtPath: %@", e.reason); }
+    return %orig;
+}
+
+- (BOOL)fileExistsAtPath:(NSString *)path isDirectory:(BOOL *)isDirectory {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"jailbreak"] && path && jailbreakFilePaths) {
+            for (NSString *jbPath in jailbreakFilePaths) {
+                if ([path hasPrefix:jbPath] || [path isEqualToString:jbPath]) {
+                    SafeLog(@"🛡️ fileExistsAtPath:isDirectory hidden: %@", path);
+                    if (isDirectory) *isDirectory = NO;
+                    return NO;
+                }
+            }
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+
+- (NSArray *)contentsOfDirectoryAtPath:(NSString *)path error:(NSError **)error {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"jailbreak"]) {
+            if ([path isEqualToString:@"/Applications"]) {
+                NSArray *orig = %orig;
+                NSMutableArray *filtered = [NSMutableArray array];
+                NSArray *hiddenApps = @[@"Cydia.app", @"Sileo.app", @"Zebra.app", @"Filza.app", @"NewTerm.app"];
+                for (NSString *item in orig) {
+                    if (![hiddenApps containsObject:item]) {
+                        [filtered addObject:item];
+                    }
+                }
+                SafeLog(@"🛡️ Filtered /Applications directory");
+                return filtered;
+            }
+        }
+    } @catch(NSException *e) {}
     return %orig;
 }
 %end
@@ -2230,77 +2285,8 @@ __attribute__((constructor)) static void initJailbreakPaths() {
 }
 %end
 
-// Hook NSFileManager to hide jailbreak files
-%hook NSFileManager
-- (BOOL)fileExistsAtPath:(NSString *)path {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"jailbreak"] && path) {
-            for (NSString *jbPath in jailbreakFilePaths) {
-                if ([path hasPrefix:jbPath] || [path isEqualToString:jbPath]) {
-                    SafeLog(@"🛡️ fileExistsAtPath hidden: %@", path);
-                    return NO;
-                }
-            }
-        }
-    } @catch(NSException *e) { SafeLog(@"[CRASH] fileExistsAtPath: %@", e.reason); }
-    return %orig;
-}
-
-- (BOOL)fileExistsAtPath:(NSString *)path isDirectory:(BOOL *)isDirectory {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"jailbreak"] && path) {
-            for (NSString *jbPath in jailbreakFilePaths) {
-                if ([path hasPrefix:jbPath] || [path isEqualToString:jbPath]) {
-                    SafeLog(@"🛡️ fileExistsAtPath:isDirectory hidden: %@", path);
-                    if (isDirectory) *isDirectory = NO;
-                    return NO;
-                }
-            }
-        }
-    } @catch(NSException *e) {}
-    return %orig;
-}
-
-- (NSArray *)contentsOfDirectoryAtPath:(NSString *)path error:(NSError **)error {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"jailbreak"]) {
-            // Hide /Applications jailbreak apps
-            if ([path isEqualToString:@"/Applications"]) {
-                NSArray *orig = %orig;
-                NSMutableArray *filtered = [NSMutableArray array];
-                NSArray *hiddenApps = @[@"Cydia.app", @"Sileo.app", @"Zebra.app", @"Filza.app", @"NewTerm.app"];
-                for (NSString *item in orig) {
-                    if (![hiddenApps containsObject:item]) {
-                        [filtered addObject:item];
-                    }
-                }
-                SafeLog(@"🛡️ Filtered /Applications directory");
-                return filtered;
-            }
-        }
-    } @catch(NSException *e) {}
-    return %orig;
-}
-%end
-
-// Hook NSBundle for info dictionary checks
-%hook NSBundle
-- (id)objectForInfoDictionaryKey:(NSString *)key {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"jailbreak"]) {
-            // Some apps check for specific keys that might indicate jailbreak
-            if ([key isEqualToString:@"SignerIdentity"]) {
-                return nil; // Hide sideload identity
-            }
-        }
-    } @catch(NSException *e) {}
-    return %orig;
-}
-%end
+// Note: NSFileManager hooks merged into original at line 1251
+// Note: NSBundle objectForInfoDictionaryKey merged into original at line 1211
 
 // ============================================================================
 // MARK: - Phase 15: Process and Library Detection Bypass
