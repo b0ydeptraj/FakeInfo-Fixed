@@ -35,6 +35,51 @@ static OSStatus (*orig_SecItemCopyMatching_ptr)(CFDictionaryRef query, CFTypeRef
 static OSStatus (*orig_SecItemAdd_ptr)(CFDictionaryRef attributes, CFTypeRef *result) = NULL;
 static OSStatus (*orig_SecItemDelete_ptr)(CFDictionaryRef query) = NULL;
 
+// Jailbreak detection arrays (must be declared before NSFileManager hook)
+static NSArray *jailbreakURLSchemes = nil;
+static NSArray *jailbreakFilePaths = nil;
+
+__attribute__((constructor)) static void initJailbreakPaths() {
+    jailbreakURLSchemes = @[
+        @"cydia", @"sileo", @"zbra", @"filza", @"activator",
+        @"undecimus", @"apt-repo", @"installer", @"icy"
+    ];
+    
+    jailbreakFilePaths = @[
+        @"/Applications/Cydia.app",
+        @"/Applications/Sileo.app",
+        @"/Applications/Zebra.app",
+        @"/Applications/Filza.app",
+        @"/private/var/lib/apt",
+        @"/private/var/lib/cydia",
+        @"/private/var/mobile/Library/SBSettings",
+        @"/private/var/stash",
+        @"/var/lib/apt",
+        @"/var/lib/cydia",
+        @"/var/cache/apt",
+        @"/var/log/syslog",
+        @"/bin/bash",
+        @"/bin/sh",
+        @"/usr/sbin/sshd",
+        @"/usr/bin/sshd",
+        @"/usr/libexec/sftp-server",
+        @"/etc/apt",
+        @"/etc/ssh/sshd_config",
+        @"/Library/MobileSubstrate",
+        @"/Library/MobileSubstrate/MobileSubstrate.dylib",
+        @"/Library/MobileSubstrate/DynamicLibraries",
+        @"/System/Library/LaunchDaemons/com.saurik.Cydia.Startup.plist",
+        @"/System/Library/LaunchDaemons/com.ikey.bbot.plist",
+        @"/private/var/tmp/cydia.log",
+        @"/usr/bin/cycript",
+        @"/usr/local/bin/cycript",
+        @"/usr/bin/ssh",
+        @"/.installed_unc0ver",
+        @"/.bootstrapped_electra",
+        @"/private/var/jb"  // rootless jailbreak
+    ];
+}
+
 // MARK: - Global Variables & Forward Declarations
 static UIWindow *settingsWindow = nil;
 static BOOL hasShownSettings = NO;
@@ -2223,50 +2268,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 // MARK: - Phase 14: Enhanced Jailbreak Detection Bypass
 // ============================================================================
 
-// Jailbreak URL schemes to block
-static NSArray *jailbreakURLSchemes = nil;
-static NSArray *jailbreakFilePaths = nil;
-
-__attribute__((constructor)) static void initJailbreakPaths() {
-    jailbreakURLSchemes = @[
-        @"cydia", @"sileo", @"zbra", @"filza", @"activator",
-        @"undecimus", @"apt-repo", @"installer", @"icy"
-    ];
-    
-    jailbreakFilePaths = @[
-        @"/Applications/Cydia.app",
-        @"/Applications/Sileo.app",
-        @"/Applications/Zebra.app",
-        @"/Applications/Filza.app",
-        @"/private/var/lib/apt",
-        @"/private/var/lib/cydia",
-        @"/private/var/mobile/Library/SBSettings",
-        @"/private/var/stash",
-        @"/var/lib/apt",
-        @"/var/lib/cydia",
-        @"/var/cache/apt",
-        @"/var/log/syslog",
-        @"/bin/bash",
-        @"/bin/sh",
-        @"/usr/sbin/sshd",
-        @"/usr/bin/sshd",
-        @"/usr/libexec/sftp-server",
-        @"/etc/apt",
-        @"/etc/ssh/sshd_config",
-        @"/Library/MobileSubstrate",
-        @"/Library/MobileSubstrate/MobileSubstrate.dylib",
-        @"/Library/MobileSubstrate/DynamicLibraries",
-        @"/System/Library/LaunchDaemons/com.saurik.Cydia.Startup.plist",
-        @"/System/Library/LaunchDaemons/com.ikey.bbot.plist",
-        @"/private/var/tmp/cydia.log",
-        @"/usr/bin/cycript",
-        @"/usr/local/bin/cycript",
-        @"/usr/bin/ssh",
-        @"/.installed_unc0ver",
-        @"/.bootstrapped_electra",
-        @"/private/var/jb"  // rootless jailbreak
-    ];
-}
+// Note: jailbreakURLSchemes and jailbreakFilePaths declared at top of file
 
 // Hook UIApplication canOpenURL to block jailbreak app detection
 %hook UIApplication
