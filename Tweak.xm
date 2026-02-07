@@ -84,8 +84,60 @@ __attribute__((constructor)) static void initJailbreakPaths() {
 static UIWindow *settingsWindow = nil;
 static BOOL hasShownSettings = NO;
 
+// Session caching for stable IDs (don't change during app session)
+static NSMutableDictionary *sessionCache = nil;
+static BOOL sessionCacheInitialized = NO;
+
+// GPS base location for realistic drift
+static double gpsBaseLatitude = 0.0;
+static double gpsBaseLongitude = 0.0;
+static BOOL gpsLocationInitialized = NO;
+
 void ShowSettingsUI(void);
 void SetupGestureRecognizer(void);
+
+// Initialize session cache
+static void initSessionCache(void) {
+    if (!sessionCacheInitialized) {
+        sessionCache = [[NSMutableDictionary alloc] init];
+        sessionCacheInitialized = YES;
+    }
+}
+
+// Get stable cached value for key (generates once per session)
+static NSString* getStableCachedValue(NSString *key, NSString *(^generator)(void)) {
+    initSessionCache();
+    if (!sessionCache[key]) {
+        sessionCache[key] = generator();
+        SafeLog(@"🔒 Cached stable value for key: %@", key);
+    }
+    return sessionCache[key];
+}
+
+// Generate stable UUID (cached per session)
+static NSString* generateStableUUID(NSString *key) {
+    return getStableCachedValue(key, ^{
+        return [[NSUUID UUID] UUIDString];
+    });
+}
+
+// Initialize GPS base location (once per session)
+static void initGPSBaseLocation(double lat, double lon) {
+    if (!gpsLocationInitialized) {
+        gpsBaseLatitude = lat;
+        gpsBaseLongitude = lon;
+        gpsLocationInitialized = YES;
+        SafeLog(@"📍 GPS base location set: %.6f, %.6f", lat, lon);
+    }
+}
+
+// Get GPS with small drift (realistic movement)
+static CLLocationCoordinate2D getGPSWithDrift(void) {
+    // Small drift: ~10-50 meters (0.0001 degree ≈ 11 meters)
+    double latDrift = ((arc4random_uniform(100) - 50) / 1000000.0);
+    double lonDrift = ((arc4random_uniform(100) - 50) / 1000000.0);
+    return CLLocationCoordinate2DMake(gpsBaseLatitude + latDrift, gpsBaseLongitude + lonDrift);
+}
 
 // MARK: - Logging & Anti-Crash
 void SafeLog(NSString *format, ...) {
@@ -1245,9 +1297,56 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"identifierForVendor"]) {
-            return [[NSUUID alloc] initWithUUIDString:[settings valueForKey:@"identifierForVendor"]];
+            // Use stable cached value if available, otherwise generate and cache
+            NSString *storedValue = [settings valueForKey:@"identifierForVendor"];
+            if (storedValue && ![storedValue isEqualToString:@"N/A"]) {
+                return [[NSUUID alloc] initWithUUIDString:storedValue];
+            }
+            // Generate stable UUID for this session
+            NSString *stableUUID = generateStableUUID(@"identifierForVendor");
+            SafeLog(@"🔐 Using stable IDFV: %@", stableUUID);
+            return [[NSUUID alloc] initWithUUIDString:stableUUID];
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] UIDevice.identifierForVendor: %@", e.reason); }
+    return %orig;
+}
+
+// Battery level hook (fake battery percentage)
+- (float)batteryLevel {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"batteryLevel"]) {
+            NSString *levelStr = [settings valueForKey:@"batteryLevel"];
+            if (levelStr && ![levelStr isEqualToString:@"N/A"]) {
+                float level = [levelStr floatValue];
+                SafeLog(@"🔋 Faking battery level: %.2f", level);
+                return level;
+            }
+        }
+    } @catch(NSException *e) { SafeLog(@"[CRASH] UIDevice.batteryLevel: %@", e.reason); }
+    return %orig;
+}
+
+// Battery state hook
+- (UIDeviceBatteryState)batteryState {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"batteryLevel"]) {
+            // Return unplugged state to appear as normal usage
+            return UIDeviceBatteryStateUnplugged;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+
+// Battery monitoring enabled
+- (BOOL)isBatteryMonitoringEnabled {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"batteryLevel"]) {
+            return YES; // Always report as enabled
+        }
+    } @catch(NSException *e) {}
     return %orig;
 }
 %end
@@ -1373,13 +1472,18 @@ FILE* fake_fopen(const char *path, const char *mode) {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"idfa"]) {
             NSString *fakeIDFA = [settings valueForKey:@"idfa"];
-            if (fakeIDFA && fakeIDFA.length > 0) {
+            // Use stored value if available
+            if (fakeIDFA && fakeIDFA.length > 0 && ![fakeIDFA isEqualToString:@"N/A"]) {
                 NSUUID *uuid = [[NSUUID alloc] initWithUUIDString:fakeIDFA];
                 if (uuid) {
-                    SafeLog(@"📺 Faking IDFA: %@", fakeIDFA);
+                    SafeLog(@"📺 Faking IDFA (stored): %@", fakeIDFA);
                     return uuid;
                 }
             }
+            // Generate stable IDFA for this session (cached)
+            NSString *stableIDFA = generateStableUUID(@"idfa_session");
+            SafeLog(@"📺 Using stable session IDFA: %@", stableIDFA);
+            return [[NSUUID alloc] initWithUUIDString:stableIDFA];
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] ASIdentifierManager.advertisingIdentifier: %@", e.reason); }
     return %orig;
@@ -1897,8 +2001,9 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            NSString *fakeUID = [[NSUUID UUID] UUIDString];
-            SafeLog(@"📊 AppsFlyer UID faked: %@", fakeUID);
+            // Use stable cached UUID for this session
+            NSString *fakeUID = generateStableUUID(@"appsflyer_uid");
+            SafeLog(@"📊 AppsFlyer UID faked (stable): %@", fakeUID);
             return fakeUID;
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] AppsFlyerLib.getAppsFlyerUID: %@", e.reason); }
@@ -2020,8 +2125,8 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            NSString *fakeID = [[NSUUID UUID] UUIDString];
-            SafeLog(@"📊 Mixpanel distinctId faked: %@", fakeID);
+            NSString *fakeID = generateStableUUID(@"mixpanel_distinct_id");
+            SafeLog(@"📊 Mixpanel distinctId faked (stable): %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] Mixpanel.distinctId: %@", e.reason); }
@@ -2035,8 +2140,8 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            NSString *fakeID = [[NSUUID UUID] UUIDString];
-            SafeLog(@"📊 Amplitude deviceId faked: %@", fakeID);
+            NSString *fakeID = generateStableUUID(@"amplitude_device_id");
+            SafeLog(@"📊 Amplitude deviceId faked (stable): %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] Amplitude.getDeviceId: %@", e.reason); }
@@ -2093,20 +2198,38 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            // Generate random location in a realistic range
-            // Default: Ho Chi Minh City area with some randomization
-            double baseLat = 10.7769;
-            double baseLong = 106.7009;
-            double latOffset = (arc4random_uniform(1000) - 500) / 10000.0; // +/- 0.05 degrees
-            double longOffset = (arc4random_uniform(1000) - 500) / 10000.0;
+            // Initialize base location once per session
+            if (!gpsLocationInitialized) {
+                // Ho Chi Minh City area as default base
+                double baseLat = 10.7769;
+                double baseLong = 106.7009;
+                // Add initial random offset (once)
+                double latOffset = (arc4random_uniform(1000) - 500) / 10000.0; // +/- 0.05 degrees (~5km)
+                double longOffset = (arc4random_uniform(1000) - 500) / 10000.0;
+                initGPSBaseLocation(baseLat + latOffset, baseLong + longOffset);
+            }
             
-            CLLocationCoordinate2D fakeCoord = CLLocationCoordinate2DMake(baseLat + latOffset, baseLong + longOffset);
+            // Get location with small realistic drift (10-50 meters)
+            CLLocationCoordinate2D fakeCoord = getGPSWithDrift();
+            
+            // Cache altitude and accuracy for consistency
+            static double cachedAltitude = 0;
+            static double cachedHAccuracy = 0;
+            static double cachedVAccuracy = 0;
+            static BOOL altitudeInitialized = NO;
+            if (!altitudeInitialized) {
+                cachedAltitude = 10.0 + arc4random_uniform(50);
+                cachedHAccuracy = 5.0 + arc4random_uniform(20);
+                cachedVAccuracy = 5.0 + arc4random_uniform(10);
+                altitudeInitialized = YES;
+            }
+            
             CLLocation *fakeLocation = [[CLLocation alloc] initWithCoordinate:fakeCoord
-                                                                     altitude:10.0 + arc4random_uniform(50)
-                                                           horizontalAccuracy:5.0 + arc4random_uniform(20)
-                                                             verticalAccuracy:5.0 + arc4random_uniform(10)
+                                                                     altitude:cachedAltitude
+                                                           horizontalAccuracy:cachedHAccuracy
+                                                             verticalAccuracy:cachedVAccuracy
                                                                     timestamp:[NSDate date]];
-            SafeLog(@"📍 Location faked: %.4f, %.4f", fakeCoord.latitude, fakeCoord.longitude);
+            SafeLog(@"📍 Location faked (stable with drift): %.6f, %.6f", fakeCoord.latitude, fakeCoord.longitude);
             return fakeLocation;
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] CLLocationManager.location: %@", e.reason); }
@@ -2481,4 +2604,188 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         });
     }
 }
+
+// ============================================================================
+// MARK: - Phase 16: Anti-Fraud SDK Blocking (Banking/E-commerce protection)
+// ============================================================================
+
+// MARK: - Block Incognia SDK (Location-based fraud detection)
+%hook IncogniaSDK
+- (NSString *)getDeviceId {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = generateStableUUID(@"incognia_device_id");
+            SafeLog(@"🛡️ Incognia deviceId blocked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+
+- (NSString *)getInstallationId {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = generateStableUUID(@"incognia_install_id");
+            SafeLog(@"🛡️ Incognia installationId blocked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+%end
+
+// MARK: - Block SHIELD SDK (Device fingerprinting protection)
+%hook SHIELDClient
+- (NSString *)getDeviceId {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = generateStableUUID(@"shield_device_id");
+            SafeLog(@"🛡️ SHIELD deviceId blocked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+
+- (NSString *)getSessionId {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = generateStableUUID(@"shield_session_id");
+            SafeLog(@"🛡️ SHIELD sessionId blocked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+%end
+
+// MARK: - Block TransUnion TrueVision SDK (Identity verification)
+%hook TrueVision
+- (NSString *)getDeviceId {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = generateStableUUID(@"truevision_device_id");
+            SafeLog(@"🛡️ TransUnion deviceId blocked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+%end
+
+%hook TrueVisionSDK
+- (NSString *)deviceFingerprint {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = generateStableUUID(@"truevision_fingerprint");
+            SafeLog(@"🛡️ TransUnion fingerprint blocked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+%end
+
+// MARK: - Block Sift Science SDK (Fraud detection)
+%hook SiftClient
+- (NSString *)deviceId {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = generateStableUUID(@"sift_device_id");
+            SafeLog(@"🛡️ Sift deviceId blocked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+
+- (NSString *)sessionId {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = generateStableUUID(@"sift_session_id");
+            return fakeID;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+%end
+
+// MARK: - Block PerimeterX SDK (Bot detection)
+%hook PXClient
+- (NSString *)getVID {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = generateStableUUID(@"perimeterx_vid");
+            SafeLog(@"🛡️ PerimeterX VID blocked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+
+- (NSString *)getPXUUID {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = generateStableUUID(@"perimeterx_uuid");
+            return fakeID;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+%end
+
+// MARK: - Block FingerprintJS SDK (Browser/device fingerprinting)
+%hook FingerprintJS
+- (NSString *)getVisitorId {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = generateStableUUID(@"fingerprintjs_visitor_id");
+            SafeLog(@"🛡️ FingerprintJS visitorId blocked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+%end
+
+// MARK: - Block Forter SDK (E-commerce fraud)
+%hook ForterSDK
+- (NSString *)getDeviceId {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = generateStableUUID(@"forter_device_id");
+            SafeLog(@"🛡️ Forter deviceId blocked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+%end
+
+// MARK: - Block Riskified SDK (E-commerce protection)
+%hook RiskifiedBeacon
+- (NSString *)getSessionId {
+    @try {
+        FakeSettings *settings = [FakeSettings shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSString *fakeID = generateStableUUID(@"riskified_session_id");
+            SafeLog(@"🛡️ Riskified sessionId blocked: %@", fakeID);
+            return fakeID;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+%end
 
