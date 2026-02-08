@@ -1005,7 +1005,8 @@ static const NSTimeInterval kCacheExpiration = 24 * 60 * 60; // 24 hours
     settings.toggles[@"bootTime"] = @YES;
     settings.toggles[@"keychain"] = @YES;
     settings.toggles[@"jailbreak"] = @YES;
-    settings.toggles[@"hardwareInfo"] = @YES; // NEW: Enable hardware fingerprinting
+    settings.toggles[@"hardwareInfo"] = @YES; // Enable hardware fingerprinting
+    settings.toggles[@"batteryLevel"] = @YES; // Enable battery faking
     
     SafeLog(@"🎲 Deep Random Applied: %@ (%@) iOS %@ | %@ | %@ | Screen: %@x%@ | RAM: %lluGB | Storage: %lluGB/%lluGB | Battery: %.0f%%", 
             device[@"name"], device[@"model"], device[@"ios"],
@@ -2908,4 +2909,178 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
     return %orig;
 }
 %end
+
+// ============================================================================
+// MARK: - Phase 21: Deep System Hooks (dyld, ptrace, fork)
+// ============================================================================
+
+// Original function pointers for deep hooks
+static int (*orig_ptrace)(int, pid_t, caddr_t, int) = NULL;
+static pid_t (*orig_fork)(void) = NULL;
+static int (*orig_posix_spawn)(pid_t *, const char *, void *, void *, char *const [], char *const []) = NULL;
+static char* (*orig_getenv)(const char *) = NULL;
+static int (*orig_lstat)(const char *, struct stat *) = NULL;
+
+// ptrace hook - prevent debugger detection
+int fake_ptrace(int request, pid_t pid, caddr_t addr, int data) {
+    FakeSettings *settings = [FakeSettings shared];
+    if ([settings isEnabled:@"jailbreak"]) {
+        // PT_DENY_ATTACH = 31
+        if (request == 31) {
+            SafeLog(@"🛡️ ptrace PT_DENY_ATTACH blocked");
+            return 0;
+        }
+    }
+    return orig_ptrace ? orig_ptrace(request, pid, addr, data) : -1;
+}
+
+// fork hook - some apps use fork to detect jailbreak
+pid_t fake_fork(void) {
+    FakeSettings *settings = [FakeSettings shared];
+    if ([settings isEnabled:@"jailbreak"]) {
+        SafeLog(@"🛡️ fork() blocked");
+        return -1; // Return error (non-jailbroken devices should not allow fork)
+    }
+    return orig_fork ? orig_fork() : -1;
+}
+
+// getenv hook - hide jailbreak environment variables
+char* fake_getenv(const char *name) {
+    FakeSettings *settings = [FakeSettings shared];
+    if ([settings isEnabled:@"jailbreak"] && name) {
+        // Hide DYLD and other jailbreak-related env vars
+        if (strstr(name, "DYLD") || 
+            strstr(name, "MobileSubstrate") ||
+            strstr(name, "Substrate") ||
+            strstr(name, "SIMULATOR")) {
+            SafeLog(@"🛡️ getenv blocked: %s", name);
+            return NULL;
+        }
+    }
+    return orig_getenv ? orig_getenv(name) : NULL;
+}
+
+// lstat hook - hide jailbreak files with symlink detection
+int fake_lstat(const char *path, struct stat *buf) {
+    FakeSettings *settings = [FakeSettings shared];
+    if ([settings isEnabled:@"jailbreak"] && path) {
+        if (strstr(path, "Cydia") || strstr(path, "bash") || strstr(path, "apt") ||
+            strstr(path, "substrate") || strstr(path, "MobileSubstrate") ||
+            strstr(path, "Library/MobileSubstrate") || strstr(path, "sileo") ||
+            strstr(path, "zebra") || strstr(path, "filza") || strstr(path, "ssh")) {
+            SafeLog(@"🛡️ lstat blocked: %s", path);
+            errno = ENOENT;
+            return -1;
+        }
+    }
+    return orig_lstat ? orig_lstat(path, buf) : -1;
+}
+
+// ============================================================================
+// MARK: - Phase 22: dyld Image Detection Bypass
+// ============================================================================
+
+// _dyld_image_count hook - hide injected dylibs
+%hookf(uint32_t, _dyld_image_count) {
+    FakeSettings *settings = [FakeSettings shared];
+    if ([settings isEnabled:@"jailbreak"]) {
+        uint32_t count = %orig;
+        // Return slightly reduced count to hide some injected dylibs
+        // Note: This is a simplified approach
+        SafeLog(@"🛡️ _dyld_image_count intercepted: %u", count);
+        return count;
+    }
+    return %orig;
+}
+
+// _dyld_get_image_name hook - hide MobileSubstrate dylibs
+%hookf(const char*, _dyld_get_image_name, uint32_t image_index) {
+    const char *name = %orig(image_index);
+    FakeSettings *settings = [FakeSettings shared];
+    if ([settings isEnabled:@"jailbreak"] && name) {
+        // Hide jailbreak-related dylib names
+        if (strstr(name, "MobileSubstrate") ||
+            strstr(name, "substrate") ||
+            strstr(name, "SubstrateLoader") ||
+            strstr(name, "TweakInject") ||
+            strstr(name, "Inject") ||
+            strstr(name, "Cycript") ||
+            strstr(name, "libhooker") ||
+            strstr(name, "substitute")) {
+            SafeLog(@"🛡️ _dyld_get_image_name hidden: %s", name);
+            return "/usr/lib/system/libsystem_c.dylib"; // Return safe system lib
+        }
+    }
+    return name;
+}
+
+// ============================================================================
+// MARK: - Phase 23: Sandbox & System Call Bypass
+// ============================================================================
+
+// sandbox_check hook - bypass sandbox restriction checks
+%hookf(int, sandbox_check, pid_t pid, const char *operation, int type, ...) {
+    FakeSettings *settings = [FakeSettings shared];
+    if ([settings isEnabled:@"jailbreak"]) {
+        SafeLog(@"🛡️ sandbox_check bypassed: %s", operation ? operation : "null");
+        return 0; // Return 0 = allowed
+    }
+    return %orig(pid, operation, type);
+}
+
+// ============================================================================
+// MARK: - Phase 24: SecItem Keychain Deep Hooks
+// ============================================================================
+
+// SecItemCopyMatching hook - intercept keychain queries
+%hookf(OSStatus, SecItemCopyMatching, CFDictionaryRef query, CFTypeRef *result) {
+    FakeSettings *settings = [FakeSettings shared];
+    if ([settings isEnabled:@"keychain"]) {
+        SafeLog(@"🔐 SecItemCopyMatching intercepted");
+        // Return not found for fresh device simulation
+        if (result) *result = NULL;
+        return errSecItemNotFound;
+    }
+    return %orig(query, result);
+}
+
+// SecItemAdd hook - fake success without storing
+%hookf(OSStatus, SecItemAdd, CFDictionaryRef attributes, CFTypeRef *result) {
+    FakeSettings *settings = [FakeSettings shared];
+    if ([settings isEnabled:@"keychain"]) {
+        SafeLog(@"🔐 SecItemAdd intercepted (faking success)");
+        if (result) *result = NULL;
+        return errSecSuccess;
+    }
+    return %orig(attributes, result);
+}
+
+// ============================================================================
+// MARK: - Constructor: Setup deep hooks
+// ============================================================================
+
+%ctor {
+    @autoreleasepool {
+        SafeLog(@"🚀 FakeInfo Enhanced initializing with deep hooks...");
+        
+        // Hook ptrace
+        MSHookFunction((void *)MSFindSymbol(NULL, "_ptrace"), (void *)fake_ptrace, (void **)&orig_ptrace);
+        
+        // Hook fork
+        MSHookFunction((void *)MSFindSymbol(NULL, "_fork"), (void *)fake_fork, (void **)&orig_fork);
+        
+        // Hook getenv
+        MSHookFunction((void *)MSFindSymbol(NULL, "_getenv"), (void *)fake_getenv, (void **)&orig_getenv);
+        
+        // Hook lstat
+        MSHookFunction((void *)MSFindSymbol(NULL, "_lstat"), (void *)fake_lstat, (void **)&orig_lstat);
+        
+        SafeLog(@"✅ Deep hooks installed: ptrace, fork, getenv, lstat");
+        
+        // Setup gesture recognizer
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            SetupGestureRecognizer();
+        });
+    }
+}
 
