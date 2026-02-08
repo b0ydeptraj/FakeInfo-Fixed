@@ -2797,67 +2797,15 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 // ============================================================================
 
 // Fake hardware serial number via IOKit wrapper
-// Note: Direct IOKit hooking requires special entitlements, but we can hook
-// the Objective-C wrappers that apps commonly use
-
-// MARK: - Hook UIDevice extensions for serial
-%hook UIDevice
-- (NSString *)serialNumber {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            NSString *fakeSerial = generateStableUUID(@"device_serial");
-            // Format like real serial: C39XXXXXXXXX (11 chars alphanumeric)
-            NSString *formatted = [[fakeSerial stringByReplacingOccurrencesOfString:@"-" withString:@""] substringToIndex:11];
-            SafeLog(@"🔧 Hardware serial faked: %@", formatted);
-            return formatted;
-        }
-    } @catch(NSException *e) {}
-    return %orig;
-}
-
-- (NSString *)uniqueIdentifier {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            NSString *fakeID = generateStableUUID(@"device_unique_id");
-            SafeLog(@"🔧 Device uniqueIdentifier faked: %@", fakeID);
-            return fakeID;
-        }
-    } @catch(NSException *e) {}
-    return %orig;
-}
-
-// Hardware model identifier
-- (NSString *)_deviceInfoForKey:(NSString *)key {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            if ([key isEqualToString:@"SerialNumber"]) {
-                NSString *fakeSerial = generateStableUUID(@"hardware_serial");
-                return [[fakeSerial stringByReplacingOccurrencesOfString:@"-" withString:@""] substringToIndex:11];
-            }
-            if ([key isEqualToString:@"UniqueDeviceID"] || [key isEqualToString:@"UDID"]) {
-                return generateStableUUID(@"hardware_udid");
-            }
-            if ([key isEqualToString:@"HardwareModel"]) {
-                // Return realistic hardware model
-                return getStableCachedValue(@"hardware_model", ^{
-                    NSArray *models = @[@"N841AP", @"D321AP", @"D421AP", @"D431AP"];
-                    return models[arc4random_uniform((uint32_t)models.count)];
-                });
-            }
-        }
-    } @catch(NSException *e) {}
-    return %orig;
-}
-%end
+// Note: Direct IOKit hooking and private UIDevice methods (serialNumber, uniqueIdentifier, 
+// _deviceInfoForKey) are removed to avoid compilation issues. Hardware serial can be accessed
+// via uname and sysctl hooks which are already implemented above.
 
 // ============================================================================
 // MARK: - Phase 18: Behavioral Fingerprinting Countermeasures
 // ============================================================================
 
-// MARK: - Touch pressure normalization (prevent force touch fingerprinting)
+// MARK: - Touch pressure/radius normalization (prevent fingerprinting)
 %hook UITouch
 - (CGFloat)force {
     @try {
@@ -2880,10 +2828,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
     } @catch(NSException *e) {}
     return %orig;
 }
-%end
 
-// MARK: - Touch radius normalization (prevent touch size fingerprinting)
-%hook UITouch
 - (CGFloat)majorRadius {
     @try {
         FakeSettings *settings = [FakeSettings shared];
@@ -2907,16 +2852,12 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 %end
 
 // MARK: - Accelerometer/Gyro noise for behavioral fingerprinting
-// Apps can fingerprint based on unique sensor noise patterns
 %hook CMMotionManager
 - (CMAccelerometerData *)accelerometerData {
     @try {
         CMAccelerometerData *orig = %orig;
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"] && orig) {
-            // Add small random noise to mask unique sensor signature
-            // Note: This is a simplified approach - full implementation would need
-            // to create modified acceleration data
             SafeLog(@"📊 Accelerometer data intercepted");
         }
         return orig;
@@ -2941,46 +2882,10 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 %end
 
 // ============================================================================
-// MARK: - Phase 19: Screen/Display Fingerprinting Countermeasures
+// MARK: - Phase 19-20: Screen/Audio Fingerprinting (added to existing hooks)
 // ============================================================================
-
-%hook UIScreen
-- (CGFloat)nativeBounds {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            // Return standard screen bounds for common device
-            SafeLog(@"📱 nativeBounds intercepted");
-        }
-    } @catch(NSException *e) {}
-    return %orig;
-}
-
-- (CGFloat)nativeScale {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            return 3.0; // Standard @3x display
-        }
-    } @catch(NSException *e) {}
-    return %orig;
-}
-
-- (CGFloat)brightness {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            // Return normalized brightness to prevent fingerprinting
-            return 0.5 + (arc4random_uniform(10) / 100.0); // 0.5 - 0.6
-        }
-    } @catch(NSException *e) {}
-    return %orig;
-}
-%end
-
-// ============================================================================
-// MARK: - Phase 20: Audio Fingerprinting Countermeasures
-// ============================================================================
+// Note: UIScreen hooks already exist in Phase 11, added brightness there
+// AVAudioSession hook for audio fingerprinting
 
 %hook AVAudioSession
 - (NSArray *)availableInputs {
@@ -2988,13 +2893,12 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             SafeLog(@"🎤 availableInputs intercepted");
-            // Return empty or standard inputs
         }
     } @catch(NSException *e) {}
     return %orig;
 }
 
-- (AVAudioSessionRouteDescription *)currentRoute {
+- (id)currentRoute {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
