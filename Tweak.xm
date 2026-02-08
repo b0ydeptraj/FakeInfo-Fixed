@@ -23,8 +23,6 @@
 #import <CoreMotion/CoreMotion.h>
 #import <mach-o/dyld.h>
 
-// External declarations for system functions
-extern int sandbox_check(pid_t pid, const char *operation, int type, ...);
 // MARK: - Original Function Pointers (CRITICAL FIX)
 static int (*orig_sysctlbyname_ptr)(const char *, void *, size_t *, void *, size_t) = NULL;
 static int (*orig_uname_ptr)(struct utsname *) = NULL;
@@ -3018,18 +3016,10 @@ int fake_lstat(const char *path, struct stat *buf) {
 }
 
 // ============================================================================
-// MARK: - Phase 23: Sandbox & System Call Bypass
+// MARK: - Phase 23: (sandbox_check removed - not publicly linked)
 // ============================================================================
-
-// sandbox_check hook - bypass sandbox restriction checks
-%hookf(int, sandbox_check, pid_t pid, const char *operation, int type, ...) {
-    FakeSettings *settings = [FakeSettings shared];
-    if ([settings isEnabled:@"jailbreak"]) {
-        SafeLog(@"🛡️ sandbox_check bypassed: %s", operation ? operation : "null");
-        return 0; // Return 0 = allowed
-    }
-    return %orig(pid, operation, type);
-}
+// Note: sandbox_check is a private function and cannot be hooked with %hookf
+// Alternative detection methods are handled via file system hooks above
 
 // ============================================================================
 // MARK: - Phase 24: SecItem Keychain Deep Hooks
