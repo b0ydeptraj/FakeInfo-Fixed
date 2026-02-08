@@ -21,7 +21,10 @@
 #import <mach/mach_time.h>
 #import <CoreLocation/CoreLocation.h>
 #import <CoreMotion/CoreMotion.h>
+#import <mach-o/dyld.h>
 
+// External declarations for system functions
+extern int sandbox_check(pid_t pid, const char *operation, int type, ...);
 // MARK: - Original Function Pointers (CRITICAL FIX)
 static int (*orig_sysctlbyname_ptr)(const char *, void *, size_t *, void *, size_t) = NULL;
 static int (*orig_uname_ptr)(struct utsname *) = NULL;
