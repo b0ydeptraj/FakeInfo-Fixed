@@ -1,4 +1,4 @@
-// FakeInfo-UIDevice Tweak - FIXED VERSION
+﻿// FakeInfo-UIDevice Tweak - FIXED VERSION
 // Fixed: MSHookFunction now saves original function pointers to prevent infinite recursion
 
 #import <UIKit/UIKit.h>
@@ -88,6 +88,8 @@ static BOOL hasShownSettings = NO;
 // Session caching for stable IDs (don't change during app session)
 static NSMutableDictionary *sessionCache = nil;
 static BOOL sessionCacheInitialized = NO;
+static NSObject *stableIdLock = nil;
+static BOOL gDebugLoggingEnabled = NO;
 
 // GPS base location for realistic drift
 static double gpsBaseLatitude = 0.0;
@@ -100,22 +102,59 @@ void SetupGestureRecognizer(void);
 // Forward declaration for SafeLog (defined later)
 void SafeLog(NSString *format, ...);
 
+static NSString *getRealBundleIdentifier(void) {
+    NSString *bundleId = [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleIdentifier"];
+    if (!bundleId || bundleId.length == 0) {
+        bundleId = [[NSBundle mainBundle] bundleIdentifier];
+    }
+    if (!bundleId || bundleId.length == 0) {
+        bundleId = @"unknown";
+    }
+    return bundleId;
+}
+
+static NSString *stableCacheKeyFor(NSString *key) {
+    return [NSString stringWithFormat:@"FakeStable_%@_%@", getRealBundleIdentifier(), key ?: @"unknown"];
+}
+
 // Initialize session cache
 static void initSessionCache(void) {
     if (!sessionCacheInitialized) {
         sessionCache = [[NSMutableDictionary alloc] init];
+        stableIdLock = [[NSObject alloc] init];
         sessionCacheInitialized = YES;
     }
 }
 
-// Get stable cached value for key (generates once per session)
+// Get stable cached value for key (persists across app restarts)
 static NSString* getStableCachedValue(NSString *key, NSString *(^generator)(void)) {
     initSessionCache();
-    if (!sessionCache[key]) {
-        sessionCache[key] = generator();
-        SafeLog(@"🔒 Cached stable value for key: %@", key);
+    @synchronized(stableIdLock) {
+        NSString *cached = sessionCache[key];
+        if (cached && cached.length > 0) {
+            return cached;
+        }
+
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        NSString *diskKey = stableCacheKeyFor(key);
+        NSString *persisted = [defaults stringForKey:diskKey];
+
+        if (!persisted || persisted.length == 0) {
+            persisted = generator();
+            if (persisted && persisted.length > 0) {
+                [defaults setObject:persisted forKey:diskKey];
+                [defaults synchronize];
+            }
+        }
+
+        if (persisted && persisted.length > 0) {
+            sessionCache[key] = persisted;
+            SafeLog(@"Cached stable value for key: %@", key);
+            return persisted;
+        }
     }
-    return sessionCache[key];
+
+    return generator();
 }
 
 // Generate stable UUID (cached per session)
@@ -131,13 +170,13 @@ static void initGPSBaseLocation(double lat, double lon) {
         gpsBaseLatitude = lat;
         gpsBaseLongitude = lon;
         gpsLocationInitialized = YES;
-        SafeLog(@"📍 GPS base location set: %.6f, %.6f", lat, lon);
+        SafeLog(@"ðŸ“ GPS base location set: %.6f, %.6f", lat, lon);
     }
 }
 
 // Get GPS with small drift (realistic movement)
 static CLLocationCoordinate2D getGPSWithDrift(void) {
-    // Small drift: ~10-50 meters (0.0001 degree ≈ 11 meters)
+    // Small drift: ~10-50 meters (0.0001 degree â‰ˆ 11 meters)
     double latDrift = ((arc4random_uniform(100) - 50) / 1000000.0);
     double lonDrift = ((arc4random_uniform(100) - 50) / 1000000.0);
     return CLLocationCoordinate2DMake(gpsBaseLatitude + latDrift, gpsBaseLongitude + lonDrift);
@@ -145,11 +184,12 @@ static CLLocationCoordinate2D getGPSWithDrift(void) {
 
 // MARK: - Logging & Anti-Crash
 void SafeLog(NSString *format, ...) {
+    if (!gDebugLoggingEnabled) return;
     va_list args;
     va_start(args, format);
     NSString *msg = [[NSString alloc] initWithFormat:format arguments:args];
     va_end(args);
-    NSLog(@"[FakeTweak] %@", msg);
+    NSLog(@"[FakeInfo] %@", msg);
 }
 
 void CrashHandler(int sig) {
@@ -283,16 +323,19 @@ void CrashHandler(int sig) {
         @"mnc": mncCode,
         @"screenWidth": [NSString stringWithFormat:@"%.0f", screenBounds.size.width],
         @"screenHeight": [NSString stringWithFormat:@"%.0f", screenBounds.size.height],
+        @"screenScale": [NSString stringWithFormat:@"%.2f", screenScale],
         @"physicalMemory": [NSString stringWithFormat:@"%llu", physicalMemory],
         @"totalDiskSpace": [NSString stringWithFormat:@"%llu", totalDisk],
         @"freeDiskSpace": [NSString stringWithFormat:@"%llu", freeDisk],
         @"batteryLevel": [NSString stringWithFormat:@"%.2f", batteryLevel],
-        @"bundleIdentifier": bundle.bundleIdentifier ?: @"Unknown",
+        @"bundleIdentifier": getRealBundleIdentifier(),
         @"appVersion": [bundle.infoDictionary objectForKey:@"CFBundleShortVersionString"] ?: @"Unknown",
         @"bundleVersion": [bundle.infoDictionary objectForKey:@"CFBundleVersion"] ?: @"Unknown",
         @"displayName": [bundle.infoDictionary objectForKey:@"CFBundleDisplayName"] ?: @"Unknown",
         @"darwinVersion": [NSString stringWithCString:osrelease encoding:NSUTF8StringEncoding] ?: @"Unknown",
         @"wifiIP": @"192.168.1.100",
+        @"gpsLat": @"10.776900",
+        @"gpsLon": @"106.700900",
         @"bootTime": bootTimeStr,
         @"jailbreak": @"OFF",
         @"keychain": @"OFF",
@@ -302,13 +345,26 @@ void CrashHandler(int sig) {
 
 // Per-app unique key based on bundle identifier
 - (NSString *)settingsKeyForBundle {
-    NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown";
+    NSString *bundleId = getRealBundleIdentifier();
     return [NSString stringWithFormat:@"FakeSettings_%@", bundleId];
 }
 
 - (NSString *)togglesKeyForBundle {
-    NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown";
+    NSString *bundleId = getRealBundleIdentifier();
     return [NSString stringWithFormat:@"FakeToggles_%@", bundleId];
+}
+
+- (void)clearStableIdentityCache {
+    NSString *prefix = [NSString stringWithFormat:@"FakeStable_%@_", getRealBundleIdentifier()];
+    NSDictionary *all = [[NSUserDefaults standardUserDefaults] dictionaryRepresentation];
+    for (NSString *key in all) {
+        if ([key hasPrefix:prefix]) {
+            [[NSUserDefaults standardUserDefaults] removeObjectForKey:key];
+        }
+    }
+    @synchronized(stableIdLock) {
+        [sessionCache removeAllObjects];
+    }
 }
 
 - (void)loadSettings {
@@ -324,7 +380,7 @@ void CrashHandler(int sig) {
     if (!self.toggles[@"keychain"]) self.toggles[@"keychain"] = @NO;
     if (!self.toggles[@"hardwareInfo"]) self.toggles[@"hardwareInfo"] = @NO;
     
-    SafeLog(@"📱 Loaded settings for bundle: %@", [[NSBundle mainBundle] bundleIdentifier]);
+    SafeLog(@"Loaded settings for bundle: %@", getRealBundleIdentifier());
 }
 
 - (void)saveSettings {
@@ -336,14 +392,15 @@ void CrashHandler(int sig) {
     [defaults setObject:self.toggles forKey:togglesKey];
     [defaults synchronize];
     
-    SafeLog(@"💾 Saved settings for bundle: %@", [[NSBundle mainBundle] bundleIdentifier]);
+    SafeLog(@"Saved settings for bundle: %@", getRealBundleIdentifier());
 }
 
 - (void)resetSettings {
     self.settings = [NSMutableDictionary dictionary];
     self.toggles = [NSMutableDictionary dictionary];
+    [self clearStableIdentityCache];
     [self saveSettings];
-    SafeLog(@"🔄 Reset settings for bundle: %@", [[NSBundle mainBundle] bundleIdentifier]);
+    SafeLog(@"Reset settings for bundle: %@", getRealBundleIdentifier());
 }
 
 - (BOOL)isEnabled:(NSString *)key {
@@ -418,37 +475,37 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
                           @"darwinVersion", @"wifiIP", @"bootTime", @"jailbreak", @"keychain", @"hardwareInfo"];
     
     self.settingsLabels = @{
-        @"systemVersion": @"📱 iOS Version",
-        @"deviceModel": @"📲 Device Model",
-        @"deviceName": @"📛 Device Name",
-        @"identifierForVendor": @"🔑 Vendor ID (UUID)",
-        @"idfa": @"📺 Advertising ID (IDFA)",
-        @"locale": @"🌍 Language/Region",
-        @"timezone": @"🕐 Timezone",
-        @"carrier": @"📶 Carrier Name",
-        @"mcc": @"📡 Mobile Country Code",
-        @"mnc": @"📡 Mobile Network Code",
-        @"screenWidth": @"📐 Screen Width (px)",
-        @"screenHeight": @"📐 Screen Height (px)",
-        @"physicalMemory": @"🧠 RAM (bytes)",
-        @"totalDiskSpace": @"💾 Total Disk (bytes)",
-        @"freeDiskSpace": @"💾 Free Disk (bytes)",
-        @"batteryLevel": @"🔋 Battery Level (0-1)",
-        @"bundleIdentifier": @"📦 Bundle ID",
-        @"appVersion": @"🏷️ App Version",
-        @"bundleVersion": @"🔢 Build Version",
-        @"displayName": @"✏️ Display Name",
-        @"darwinVersion": @"⚙️ Darwin Version",
-        @"wifiIP": @"📡 WiFi IP",
-        @"bootTime": @"⏰ Boot Time (Fresh)",
-        @"jailbreak": @"🔓 Hide Jailbreak",
-        @"keychain": @"🔐 Block Keychain",
-        @"hardwareInfo": @"🛡️ Deep Identity (Screen/RAM/Disk/Analytics)"
+        @"systemVersion": @"ðŸ“± iOS Version",
+        @"deviceModel": @"ðŸ“² Device Model",
+        @"deviceName": @"ðŸ“› Device Name",
+        @"identifierForVendor": @"ðŸ”‘ Vendor ID (UUID)",
+        @"idfa": @"ðŸ“º Advertising ID (IDFA)",
+        @"locale": @"ðŸŒ Language/Region",
+        @"timezone": @"ðŸ• Timezone",
+        @"carrier": @"ðŸ“¶ Carrier Name",
+        @"mcc": @"ðŸ“¡ Mobile Country Code",
+        @"mnc": @"ðŸ“¡ Mobile Network Code",
+        @"screenWidth": @"ðŸ“ Screen Width (px)",
+        @"screenHeight": @"ðŸ“ Screen Height (px)",
+        @"physicalMemory": @"ðŸ§  RAM (bytes)",
+        @"totalDiskSpace": @"ðŸ’¾ Total Disk (bytes)",
+        @"freeDiskSpace": @"ðŸ’¾ Free Disk (bytes)",
+        @"batteryLevel": @"ðŸ”‹ Battery Level (0-1)",
+        @"bundleIdentifier": @"ðŸ“¦ Bundle ID",
+        @"appVersion": @"ðŸ·ï¸ App Version",
+        @"bundleVersion": @"ðŸ”¢ Build Version",
+        @"displayName": @"âœï¸ Display Name",
+        @"darwinVersion": @"âš™ï¸ Darwin Version",
+        @"wifiIP": @"ðŸ“¡ WiFi IP",
+        @"bootTime": @"â° Boot Time (Fresh)",
+        @"jailbreak": @"ðŸ”“ Hide Jailbreak",
+        @"keychain": @"ðŸ” Block Keychain",
+        @"hardwareInfo": @"ðŸ›¡ï¸ Deep Identity (Screen/RAM/Disk/Analytics)"
     };
     
     // Title label
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 50, self.view.bounds.size.width, 40)];
-    titleLabel.text = @"🎭 FakeInfo Settings";
+    titleLabel.text = @"ðŸŽ­ FakeInfo Settings";
     titleLabel.textColor = [UIColor whiteColor];
     titleLabel.textAlignment = NSTextAlignmentCenter;
     titleLabel.font = [UIFont boldSystemFontOfSize:20];
@@ -457,7 +514,7 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     // Close button
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     closeBtn.frame = CGRectMake(self.view.bounds.size.width - 60, 50, 50, 40);
-    [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
+    [closeBtn setTitle:@"âœ•" forState:UIControlStateNormal];
     [closeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     closeBtn.titleLabel.font = [UIFont systemFontOfSize:24];
     [closeBtn addTarget:self action:@selector(closeSettings) forControlEvents:UIControlEventTouchUpInside];
@@ -476,7 +533,7 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     saveBtn.frame = CGRectMake(20, self.view.bounds.size.height - 70, self.view.bounds.size.width - 40, 50);
     saveBtn.backgroundColor = [UIColor systemBlueColor];
     saveBtn.layer.cornerRadius = 10;
-    [saveBtn setTitle:@"💾 Save Settings" forState:UIControlStateNormal];
+    [saveBtn setTitle:@"ðŸ’¾ Save Settings" forState:UIControlStateNormal];
     [saveBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     saveBtn.titleLabel.font = [UIFont boldSystemFontOfSize:18];
     [saveBtn addTarget:self action:@selector(saveAndClose) forControlEvents:UIControlEventTouchUpInside];
@@ -504,10 +561,10 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
         cell.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.1];
         
         if (indexPath.row == 0) {
-            cell.textLabel.text = @"🎲 Random All (Real Device Data)";
+            cell.textLabel.text = @"ðŸŽ² Random All (Real Device Data)";
             cell.textLabel.textColor = [UIColor systemGreenColor];
         } else {
-            cell.textLabel.text = @"🔄 Reset All Settings";
+            cell.textLabel.text = @"ðŸ”„ Reset All Settings";
             cell.textLabel.textColor = [UIColor systemRedColor];
         }
         return cell;
@@ -593,191 +650,6 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
 }
 
 // ============================================================================
-// MARK: - Online Device Database from ipsw.me API
-// ============================================================================
-
-// Cache key constants
-static NSString *const kCachedDevicesKey = @"FakeInfo_CachedDevices";
-static NSString *const kCacheTimestampKey = @"FakeInfo_CacheTimestamp";
-static const NSTimeInterval kCacheExpiration = 24 * 60 * 60; // 24 hours
-
-// Darwin version mapping based on iOS major version
-- (NSString *)darwinVersionForIOS:(NSString *)iosVersion {
-    if (!iosVersion) return @"24.0.0";
-    
-    NSArray *parts = [iosVersion componentsSeparatedByString:@"."];
-    if (parts.count == 0) return @"24.0.0";
-    
-    int major = [parts[0] intValue];
-    NSString *minor = parts.count > 1 ? parts[1] : @"0";
-    
-    // iOS major version + 6 = Darwin major version
-    // iOS 18 -> Darwin 24, iOS 17 -> Darwin 23, etc.
-    int darwinMajor = major + 6;
-    
-    return [NSString stringWithFormat:@"%d.%@.0", darwinMajor, minor];
-}
-
-// Check if cache is still valid
-- (BOOL)isCacheValid {
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSDate *timestamp = [defaults objectForKey:kCacheTimestampKey];
-    if (!timestamp) return NO;
-    
-    NSTimeInterval age = [[NSDate date] timeIntervalSinceDate:timestamp];
-    return age < kCacheExpiration;
-}
-
-// Get cached devices
-- (NSArray *)getCachedDevices {
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    return [defaults arrayForKey:kCachedDevicesKey];
-}
-
-// Save devices to cache
-- (void)cacheDevices:(NSArray *)devices {
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    [defaults setObject:devices forKey:kCachedDevicesKey];
-    [defaults setObject:[NSDate date] forKey:kCacheTimestampKey];
-    [defaults synchronize];
-    SafeLog(@"📦 Cached %lu devices from API", (unsigned long)devices.count);
-}
-
-// Fetch devices from ipsw.me API
-- (void)fetchDevicesFromAPI:(void(^)(NSArray *devices, NSError *error))completion {
-    NSURL *url = [NSURL URLWithString:@"https://api.ipsw.me/v4/devices"];
-    
-    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url 
-        completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-            if (error) {
-                SafeLog(@"❌ API fetch error: %@", error.localizedDescription);
-                completion(nil, error);
-                return;
-            }
-            
-            NSError *jsonError;
-            NSArray *allDevices = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
-            if (jsonError) {
-                SafeLog(@"❌ JSON parse error: %@", jsonError.localizedDescription);
-                completion(nil, jsonError);
-                return;
-            }
-            
-            // Filter only iPhones (identifier starts with "iPhone")
-            NSMutableArray *iPhones = [NSMutableArray array];
-            for (NSDictionary *device in allDevices) {
-                NSString *identifier = device[@"identifier"];
-                if ([identifier hasPrefix:@"iPhone"]) {
-                    [iPhones addObject:@{
-                        @"model": identifier,
-                        @"name": device[@"name"]
-                    }];
-                }
-            }
-            
-            SafeLog(@"✅ Fetched %lu iPhones from API", (unsigned long)iPhones.count);
-            completion(iPhones, nil);
-        }];
-    [task resume];
-}
-
-// Fetch firmware info for a specific device
-- (void)fetchFirmwareForDevice:(NSString *)identifier completion:(void(^)(NSDictionary *firmware, NSError *error))completion {
-    NSString *urlStr = [NSString stringWithFormat:@"https://api.ipsw.me/v4/device/%@?type=ipsw", identifier];
-    NSURL *url = [NSURL URLWithString:urlStr];
-    
-    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url 
-        completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-            if (error) {
-                completion(nil, error);
-                return;
-            }
-            
-            NSError *jsonError;
-            NSDictionary *deviceInfo = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
-            if (jsonError) {
-                completion(nil, jsonError);
-                return;
-            }
-            
-            // Get latest signed firmware, or first firmware if none signed
-            NSArray *firmwares = deviceInfo[@"firmwares"];
-            NSDictionary *latestFirmware = nil;
-            
-            for (NSDictionary *fw in firmwares) {
-                if ([fw[@"signed"] boolValue]) {
-                    latestFirmware = fw;
-                    break;
-                }
-            }
-            
-            // Fallback to first firmware if no signed found
-            if (!latestFirmware && firmwares.count > 0) {
-                latestFirmware = firmwares[0];
-            }
-            
-            if (latestFirmware) {
-                NSString *iosVersion = latestFirmware[@"version"];
-                completion(@{
-                    @"model": identifier,
-                    @"name": deviceInfo[@"name"],
-                    @"ios": iosVersion ?: @"18.0",
-                    @"build": latestFirmware[@"buildid"] ?: @"22A3354",
-                    @"darwin": [self darwinVersionForIOS:iosVersion]
-                }, nil);
-            } else {
-                completion(nil, [NSError errorWithDomain:@"FakeInfo" code:404 userInfo:@{NSLocalizedDescriptionKey: @"No firmware found"}]);
-            }
-        }];
-    [task resume];
-}
-
-// Update database from API (async, caches result)
-- (void)updateDatabaseFromAPIWithCompletion:(void(^)(BOOL success, NSInteger count))completion {
-    [self fetchDevicesFromAPI:^(NSArray *devices, NSError *error) {
-        if (error || !devices || devices.count == 0) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                if (completion) completion(NO, 0);
-            });
-            return;
-        }
-        
-        // Randomly select 20 devices to fetch firmware (to avoid too many requests)
-        NSMutableArray *shuffled = [devices mutableCopy];
-        for (NSUInteger i = shuffled.count - 1; i > 0; i--) {
-            NSUInteger j = arc4random_uniform((uint32_t)(i + 1));
-            [shuffled exchangeObjectAtIndex:i withObjectAtIndex:j];
-        }
-        
-        NSArray *selectedDevices = [shuffled subarrayWithRange:NSMakeRange(0, MIN(20, shuffled.count))];
-        
-        __block NSMutableArray *fullDevices = [NSMutableArray array];
-        __block NSInteger completed = 0;
-        
-        for (NSDictionary *device in selectedDevices) {
-            [self fetchFirmwareForDevice:device[@"model"] completion:^(NSDictionary *firmware, NSError *fwError) {
-                if (firmware) {
-                    @synchronized(fullDevices) {
-                        [fullDevices addObject:firmware];
-                    }
-                }
-                
-                completed++;
-                if (completed == selectedDevices.count) {
-                    // All done, cache the results
-                    if (fullDevices.count > 0) {
-                        [self cacheDevices:fullDevices];
-                    }
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        if (completion) completion(fullDevices.count > 0, fullDevices.count);
-                    });
-                }
-            }];
-        }
-    }];
-}
-
-// Local fallback database (used when offline)
 - (NSArray *)getLocalDeviceDatabase {
     return @[
         // iPhone 16 Series (2024) - iOS 18.x
@@ -831,32 +703,15 @@ static const NSTimeInterval kCacheExpiration = 24 * 60 * 60; // 24 hours
 
 // Get devices (from cache or local fallback)
 - (NSArray *)getDeviceDatabase {
-    // Try cached devices first
-    if ([self isCacheValid]) {
-        NSArray *cached = [self getCachedDevices];
-        if (cached && cached.count > 0) {
-            SafeLog(@"📱 Using %lu cached devices from API", (unsigned long)cached.count);
-            return cached;
-        }
-    }
-    
-    // Fallback to local database
-    SafeLog(@"📱 Using local device database (offline mode)");
+    // Runtime network fetches are noisy and easy to fingerprint.
+    // Keep profile generation deterministic by using local versioned data only.
+    SafeLog(@"Using local device database (offline mode)");
     return [self getLocalDeviceDatabase];
 }
 
 - (void)randomAllSettings {
-    // Get device database (cached API data or local fallback)
+    // Get device database from local bundle.
     NSArray *realDevices = [self getDeviceDatabase];
-    
-    // Try to update cache in background if expired (non-blocking)
-    if (![self isCacheValid]) {
-        [self updateDatabaseFromAPIWithCompletion:^(BOOL success, NSInteger count) {
-            if (success) {
-                SafeLog(@"🔄 Background cache update: %ld devices", (long)count);
-            }
-        }];
-    }
     
     // Pick random device
     NSDictionary *device = realDevices[arc4random_uniform((uint32_t)realDevices.count)];
@@ -876,8 +731,8 @@ static const NSTimeInterval kCacheExpiration = 24 * 60 * 60; // 24 hours
     // Real device names
     NSArray *deviceNames = @[
         [NSString stringWithFormat:@"%@", device[@"name"]],
-        [NSString stringWithFormat:@"%@ của tôi", device[@"name"]],
-        @"iPhone", @"iPhone của tôi", @"My iPhone",
+        [NSString stringWithFormat:@"%@ cá»§a tÃ´i", device[@"name"]],
+        @"iPhone", @"iPhone cá»§a tÃ´i", @"My iPhone",
         @"Phone", @"Personal", @"Main Phone", @"Work iPhone"
     ];
     NSString *deviceName = deviceNames[arc4random_uniform((uint32_t)deviceNames.count)];
@@ -886,33 +741,25 @@ static const NSTimeInterval kCacheExpiration = 24 * 60 * 60; // 24 hours
     // NEW: Deep Identity Faking - Locale, Timezone, Carrier
     // ============================================================================
     
-    // Locale + Timezone + Carrier + MCC/MNC combinations (realistic pairings)
+    // Locale + Timezone + Carrier + MCC/MNC + baseline GPS (realistic pairings)
     NSArray *localeData = @[
-        @{@"locale": @"en_US", @"timezone": @"America/New_York", @"carrier": @"AT&T", @"mcc": @"310", @"mnc": @"410"},
-        @{@"locale": @"en_US", @"timezone": @"America/Los_Angeles", @"carrier": @"Verizon", @"mcc": @"311", @"mnc": @"480"},
-        @{@"locale": @"en_US", @"timezone": @"America/Chicago", @"carrier": @"T-Mobile", @"mcc": @"310", @"mnc": @"260"},
-        @{@"locale": @"en_GB", @"timezone": @"Europe/London", @"carrier": @"EE", @"mcc": @"234", @"mnc": @"30"},
-        @{@"locale": @"en_AU", @"timezone": @"Australia/Sydney", @"carrier": @"Telstra", @"mcc": @"505", @"mnc": @"01"},
-        @{@"locale": @"vi_VN", @"timezone": @"Asia/Ho_Chi_Minh", @"carrier": @"Viettel", @"mcc": @"452", @"mnc": @"04"},
-        @{@"locale": @"vi_VN", @"timezone": @"Asia/Ho_Chi_Minh", @"carrier": @"Mobifone", @"mcc": @"452", @"mnc": @"01"},
-        @{@"locale": @"vi_VN", @"timezone": @"Asia/Ho_Chi_Minh", @"carrier": @"Vinaphone", @"mcc": @"452", @"mnc": @"02"},
-        @{@"locale": @"ja_JP", @"timezone": @"Asia/Tokyo", @"carrier": @"NTT DOCOMO", @"mcc": @"440", @"mnc": @"10"},
-        @{@"locale": @"ja_JP", @"timezone": @"Asia/Tokyo", @"carrier": @"SoftBank", @"mcc": @"440", @"mnc": @"20"},
-        @{@"locale": @"ko_KR", @"timezone": @"Asia/Seoul", @"carrier": @"SK Telecom", @"mcc": @"450", @"mnc": @"05"},
-        @{@"locale": @"zh_CN", @"timezone": @"Asia/Shanghai", @"carrier": @"China Mobile", @"mcc": @"460", @"mnc": @"00"},
-        @{@"locale": @"zh_TW", @"timezone": @"Asia/Taipei", @"carrier": @"Chunghwa Telecom", @"mcc": @"466", @"mnc": @"92"},
-        @{@"locale": @"de_DE", @"timezone": @"Europe/Berlin", @"carrier": @"Deutsche Telekom", @"mcc": @"262", @"mnc": @"01"},
-        @{@"locale": @"fr_FR", @"timezone": @"Europe/Paris", @"carrier": @"Orange", @"mcc": @"208", @"mnc": @"01"},
-        @{@"locale": @"es_ES", @"timezone": @"Europe/Madrid", @"carrier": @"Movistar", @"mcc": @"214", @"mnc": @"07"},
-        @{@"locale": @"pt_BR", @"timezone": @"America/Sao_Paulo", @"carrier": @"Vivo", @"mcc": @"724", @"mnc": @"06"},
-        @{@"locale": @"ru_RU", @"timezone": @"Europe/Moscow", @"carrier": @"MTS", @"mcc": @"250", @"mnc": @"01"},
-        @{@"locale": @"id_ID", @"timezone": @"Asia/Jakarta", @"carrier": @"Telkomsel", @"mcc": @"510", @"mnc": @"10"},
-        @{@"locale": @"th_TH", @"timezone": @"Asia/Bangkok", @"carrier": @"AIS", @"mcc": @"520", @"mnc": @"01"},
+        @{@"locale": @"en_US", @"timezone": @"America/New_York", @"carrier": @"AT&T", @"mcc": @"310", @"mnc": @"410", @"lat": @(40.7128), @"lon": @(-74.0060)},
+        @{@"locale": @"en_US", @"timezone": @"America/Los_Angeles", @"carrier": @"Verizon", @"mcc": @"311", @"mnc": @"480", @"lat": @(34.0522), @"lon": @(-118.2437)},
+        @{@"locale": @"en_US", @"timezone": @"America/Chicago", @"carrier": @"T-Mobile", @"mcc": @"310", @"mnc": @"260", @"lat": @(41.8781), @"lon": @(-87.6298)},
+        @{@"locale": @"en_GB", @"timezone": @"Europe/London", @"carrier": @"EE", @"mcc": @"234", @"mnc": @"30", @"lat": @(51.5072), @"lon": @(-0.1276)},
+        @{@"locale": @"en_AU", @"timezone": @"Australia/Sydney", @"carrier": @"Telstra", @"mcc": @"505", @"mnc": @"01", @"lat": @(-33.8688), @"lon": @(151.2093)},
+        @{@"locale": @"vi_VN", @"timezone": @"Asia/Ho_Chi_Minh", @"carrier": @"Viettel", @"mcc": @"452", @"mnc": @"04", @"lat": @(10.7769), @"lon": @(106.7009)},
+        @{@"locale": @"ja_JP", @"timezone": @"Asia/Tokyo", @"carrier": @"NTT DOCOMO", @"mcc": @"440", @"mnc": @"10", @"lat": @(35.6762), @"lon": @(139.6503)},
+        @{@"locale": @"ko_KR", @"timezone": @"Asia/Seoul", @"carrier": @"SK Telecom", @"mcc": @"450", @"mnc": @"05", @"lat": @(37.5665), @"lon": @(126.9780)},
+        @{@"locale": @"zh_CN", @"timezone": @"Asia/Shanghai", @"carrier": @"China Mobile", @"mcc": @"460", @"mnc": @"00", @"lat": @(31.2304), @"lon": @(121.4737)},
+        @{@"locale": @"de_DE", @"timezone": @"Europe/Berlin", @"carrier": @"Deutsche Telekom", @"mcc": @"262", @"mnc": @"01", @"lat": @(52.5200), @"lon": @(13.4050)},
+        @{@"locale": @"fr_FR", @"timezone": @"Europe/Paris", @"carrier": @"Orange", @"mcc": @"208", @"mnc": @"01", @"lat": @(48.8566), @"lon": @(2.3522)},
+        @{@"locale": @"pt_BR", @"timezone": @"America/Sao_Paulo", @"carrier": @"Vivo", @"mcc": @"724", @"mnc": @"06", @"lat": @(-23.5505), @"lon": @(-46.6333)},
     ];
     NSDictionary *randomLocale = localeData[arc4random_uniform((uint32_t)localeData.count)];
     
-    // Boot time: random between 1 hour and 7 days ago (fresh device feel)
-    NSTimeInterval bootOffset = (arc4random_uniform(7 * 24 * 60) + 60) * 60; // 1h to 7d in seconds
+    // Boot time: random between 6 hours and 21 days ago.
+    NSTimeInterval bootOffset = (arc4random_uniform(21 * 24 * 60 - 6 * 60) + 6 * 60) * 60;
     NSDate *fakeBootTime = [NSDate dateWithTimeIntervalSinceNow:-bootOffset];
     NSString *bootTimeStr = [NSString stringWithFormat:@"%.0f", [fakeBootTime timeIntervalSince1970]];
     
@@ -980,6 +827,8 @@ static const NSTimeInterval kCacheExpiration = 24 * 60 * 60; // 24 hours
     settings.settings[@"carrier"] = randomLocale[@"carrier"];
     settings.settings[@"mcc"] = randomLocale[@"mcc"];
     settings.settings[@"mnc"] = randomLocale[@"mnc"];
+    settings.settings[@"gpsLat"] = [NSString stringWithFormat:@"%.6f", [randomLocale[@"lat"] doubleValue]];
+    settings.settings[@"gpsLon"] = [NSString stringWithFormat:@"%.6f", [randomLocale[@"lon"] doubleValue]];
     settings.settings[@"bootTime"] = bootTimeStr;
     
     // NEW: Hardware fingerprints
@@ -1004,12 +853,13 @@ static const NSTimeInterval kCacheExpiration = 24 * 60 * 60; // 24 hours
     settings.toggles[@"timezone"] = @YES;
     settings.toggles[@"carrier"] = @YES;
     settings.toggles[@"bootTime"] = @YES;
-    settings.toggles[@"keychain"] = @YES;
-    settings.toggles[@"jailbreak"] = @YES;
+    // Keep risky bypass toggles off by default; enable manually when needed.
+    if (!settings.toggles[@"keychain"]) settings.toggles[@"keychain"] = @NO;
+    if (!settings.toggles[@"jailbreak"]) settings.toggles[@"jailbreak"] = @NO;
     settings.toggles[@"hardwareInfo"] = @YES; // Enable hardware fingerprinting
     settings.toggles[@"batteryLevel"] = @YES; // Enable battery faking
     
-    SafeLog(@"🎲 Deep Random Applied: %@ (%@) iOS %@ | %@ | %@ | Screen: %@x%@ | RAM: %lluGB | Storage: %lluGB/%lluGB | Battery: %.0f%%", 
+    SafeLog(@"ðŸŽ² Deep Random Applied: %@ (%@) iOS %@ | %@ | %@ | Screen: %@x%@ | RAM: %lluGB | Storage: %lluGB/%lluGB | Battery: %.0f%%", 
             device[@"name"], device[@"model"], device[@"ios"],
             randomLocale[@"locale"], randomLocale[@"carrier"],
             specs[@"screenWidth"], specs[@"screenHeight"],
@@ -1081,11 +931,11 @@ void SetupGestureRecognizer() {
 }
 
 void ShowSettingsUI() {
-    SafeLog(@"🔧 ShowSettingsUI called");
+    SafeLog(@"ðŸ”§ ShowSettingsUI called");
     
     // Close existing window if any
     if (settingsWindow) {
-        SafeLog(@"🔧 Closing existing settings window");
+        SafeLog(@"ðŸ”§ Closing existing settings window");
         settingsWindow.hidden = YES;
         settingsWindow = nil;
         hasShownSettings = NO;
@@ -1094,7 +944,7 @@ void ShowSettingsUI() {
 
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {
-            SafeLog(@"🔧 Creating new settings window...");
+            SafeLog(@"ðŸ”§ Creating new settings window...");
             
             // For iOS 13+, we need to use UIWindowScene
             if (@available(iOS 13.0, *)) {
@@ -1108,18 +958,18 @@ void ShowSettingsUI() {
                 
                 if (windowScene) {
                     settingsWindow = [[UIWindow alloc] initWithWindowScene:windowScene];
-                    SafeLog(@"🔧 Created window with windowScene");
+                    SafeLog(@"ðŸ”§ Created window with windowScene");
                 } else {
                     settingsWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-                    SafeLog(@"🔧 Created window with frame (no scene found)");
+                    SafeLog(@"ðŸ”§ Created window with frame (no scene found)");
                 }
             } else {
                 settingsWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-                SafeLog(@"🔧 Created window with frame (iOS < 13)");
+                SafeLog(@"ðŸ”§ Created window with frame (iOS < 13)");
             }
             
             if (!settingsWindow) {
-                SafeLog(@"❌ Failed to create settings window!");
+                SafeLog(@"âŒ Failed to create settings window!");
                 return;
             }
             
@@ -1129,7 +979,7 @@ void ShowSettingsUI() {
             
             FakeSettingsViewController *settingsVC = [[FakeSettingsViewController alloc] init];
             if (!settingsVC) {
-                SafeLog(@"❌ Failed to create FakeSettingsViewController!");
+                SafeLog(@"âŒ Failed to create FakeSettingsViewController!");
                 return;
             }
             
@@ -1138,9 +988,9 @@ void ShowSettingsUI() {
             [settingsWindow makeKeyAndVisible];
             hasShownSettings = YES;
             
-            SafeLog(@"✅ Settings UI presented successfully! Frame: %@", NSStringFromCGRect(settingsWindow.frame));
+            SafeLog(@"âœ… Settings UI presented successfully! Frame: %@", NSStringFromCGRect(settingsWindow.frame));
         } @catch (NSException *e) {
-            SafeLog(@"❌ Exception in ShowSettingsUI: %@", e.reason);
+            SafeLog(@"âŒ Exception in ShowSettingsUI: %@", e.reason);
         }
     });
 }
@@ -1153,6 +1003,10 @@ int fake_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void *newp,
         if ([settings isEnabled:@"deviceModel"] && strcmp(name, "hw.machine") == 0) {
             const char *val = [[settings valueForKey:@"deviceModel"] UTF8String];
             size_t len = strlen(val) + 1;
+            if (oldlenp && !oldp) {
+                *oldlenp = len;
+                return 0;
+            }
             if (oldp && oldlenp && *oldlenp >= len) {
                 strcpy((char *)oldp, val);
                 *oldlenp = len;
@@ -1162,6 +1016,10 @@ int fake_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void *newp,
         if ([settings isEnabled:@"darwinVersion"] && strcmp(name, "kern.osrelease") == 0) {
             const char *val = [[settings valueForKey:@"darwinVersion"] UTF8String];
             size_t len = strlen(val) + 1;
+            if (oldlenp && !oldp) {
+                *oldlenp = len;
+                return 0;
+            }
             if (oldp && oldlenp && *oldlenp >= len) {
                 strcpy((char *)oldp, val);
                 *oldlenp = len;
@@ -1171,11 +1029,15 @@ int fake_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void *newp,
         // NEW: Fake boot time to simulate fresh device
         if ([settings isEnabled:@"bootTime"] && strcmp(name, "kern.boottime") == 0) {
             NSString *bootTimeStr = [settings valueForKey:@"bootTime"];
+            if (bootTimeStr && oldlenp && !oldp) {
+                *oldlenp = sizeof(struct timeval);
+                return 0;
+            }
             if (bootTimeStr && oldp && oldlenp && *oldlenp >= sizeof(struct timeval)) {
                 struct timeval *tv = (struct timeval *)oldp;
                 tv->tv_sec = (time_t)[bootTimeStr longLongValue];
                 tv->tv_usec = 0;
-                SafeLog(@"⏰ Faking boot time: %@", bootTimeStr);
+                SafeLog(@"Faking boot time: %@", bootTimeStr);
                 return 0;
             }
         }
@@ -1309,7 +1171,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
             }
             // Generate stable UUID for this session
             NSString *stableUUID = generateStableUUID(@"identifierForVendor");
-            SafeLog(@"🔐 Using stable IDFV: %@", stableUUID);
+            SafeLog(@"ðŸ” Using stable IDFV: %@", stableUUID);
             return [[NSUUID alloc] initWithUUIDString:stableUUID];
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] UIDevice.identifierForVendor: %@", e.reason); }
@@ -1324,7 +1186,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
             NSString *levelStr = [settings valueForKey:@"batteryLevel"];
             if (levelStr && ![levelStr isEqualToString:@"N/A"]) {
                 float level = [levelStr floatValue];
-                SafeLog(@"🔋 Faking battery level: %.2f", level);
+                SafeLog(@"ðŸ”‹ Faking battery level: %.2f", level);
                 return level;
             }
         }
@@ -1387,7 +1249,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
         if ([settings isEnabled:@"jailbreak"]) {
             // Hide sideload/jailbreak indicators
             if ([key isEqualToString:@"SignerIdentity"]) {
-                SafeLog(@"🛡️ objectForInfoDictionaryKey hidden: %@", key);
+                SafeLog(@"ðŸ›¡ï¸ objectForInfoDictionaryKey hidden: %@", key);
                 return nil;
             }
         }
@@ -1419,7 +1281,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
         if ([settings isEnabled:@"jailbreak"] && path && jailbreakFilePaths) {
             for (NSString *jbPath in jailbreakFilePaths) {
                 if ([path hasPrefix:jbPath] || [path isEqualToString:jbPath]) {
-                    SafeLog(@"🛡️ fileExistsAtPath hidden: %@", path);
+                    SafeLog(@"ðŸ›¡ï¸ fileExistsAtPath hidden: %@", path);
                     return NO;
                 }
             }
@@ -1434,7 +1296,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
         if ([settings isEnabled:@"jailbreak"] && path && jailbreakFilePaths) {
             for (NSString *jbPath in jailbreakFilePaths) {
                 if ([path hasPrefix:jbPath] || [path isEqualToString:jbPath]) {
-                    SafeLog(@"🛡️ fileExistsAtPath:isDirectory hidden: %@", path);
+                    SafeLog(@"ðŸ›¡ï¸ fileExistsAtPath:isDirectory hidden: %@", path);
                     if (isDirectory) *isDirectory = NO;
                     return NO;
                 }
@@ -1457,7 +1319,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
                         [filtered addObject:item];
                     }
                 }
-                SafeLog(@"🛡️ Filtered /Applications directory");
+                SafeLog(@"ðŸ›¡ï¸ Filtered /Applications directory");
                 return filtered;
             }
         }
@@ -1481,13 +1343,13 @@ FILE* fake_fopen(const char *path, const char *mode) {
             if (fakeIDFA && fakeIDFA.length > 0 && ![fakeIDFA isEqualToString:@"N/A"]) {
                 NSUUID *uuid = [[NSUUID alloc] initWithUUIDString:fakeIDFA];
                 if (uuid) {
-                    SafeLog(@"📺 Faking IDFA (stored): %@", fakeIDFA);
+                    SafeLog(@"ðŸ“º Faking IDFA (stored): %@", fakeIDFA);
                     return uuid;
                 }
             }
             // Generate stable IDFA for this session (cached)
             NSString *stableIDFA = generateStableUUID(@"idfa_session");
-            SafeLog(@"📺 Using stable session IDFA: %@", stableIDFA);
+            SafeLog(@"ðŸ“º Using stable session IDFA: %@", stableIDFA);
             return [[NSUUID alloc] initWithUUIDString:stableIDFA];
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] ASIdentifierManager.advertisingIdentifier: %@", e.reason); }
@@ -1498,7 +1360,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"idfa"]) {
-            SafeLog(@"📺 Faking ad tracking: disabled");
+            SafeLog(@"ðŸ“º Faking ad tracking: disabled");
             return NO; // Simulate user disabled ad tracking
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] ASIdentifierManager.isAdvertisingTrackingEnabled: %@", e.reason); }
@@ -1514,7 +1376,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
         if ([settings isEnabled:@"locale"]) {
             NSString *fakeLocale = [settings valueForKey:@"locale"];
             if (fakeLocale && fakeLocale.length > 0) {
-                SafeLog(@"🌍 Faking locale: %@", fakeLocale);
+                SafeLog(@"ðŸŒ Faking locale: %@", fakeLocale);
                 return [[NSLocale alloc] initWithLocaleIdentifier:fakeLocale];
             }
         }
@@ -1561,7 +1423,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
             if (fakeTZ && fakeTZ.length > 0) {
                 NSTimeZone *tz = [NSTimeZone timeZoneWithName:fakeTZ];
                 if (tz) {
-                    SafeLog(@"🕐 Faking timezone: %@", fakeTZ);
+                    SafeLog(@"ðŸ• Faking timezone: %@", fakeTZ);
                     return tz;
                 }
             }
@@ -1607,7 +1469,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
         if ([settings isEnabled:@"carrier"]) {
             NSString *fakeCarrier = [settings valueForKey:@"carrier"];
             if (fakeCarrier && fakeCarrier.length > 0) {
-                SafeLog(@"📶 Faking carrier: %@", fakeCarrier);
+                SafeLog(@"ðŸ“¶ Faking carrier: %@", fakeCarrier);
                 return fakeCarrier;
             }
         }
@@ -1639,7 +1501,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
         if ([settings isEnabled:@"carrier"]) {
             NSString *fakeMCC = [settings valueForKey:@"mcc"];
             if (fakeMCC && fakeMCC.length > 0) {
-                SafeLog(@"📶 Faking MCC: %@", fakeMCC);
+                SafeLog(@"ðŸ“¶ Faking MCC: %@", fakeMCC);
                 return fakeMCC;
             }
         }
@@ -1653,7 +1515,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
         if ([settings isEnabled:@"carrier"]) {
             NSString *fakeMNC = [settings valueForKey:@"mnc"];
             if (fakeMNC && fakeMNC.length > 0) {
-                SafeLog(@"📶 Faking MNC: %@", fakeMNC);
+                SafeLog(@"ðŸ“¶ Faking MNC: %@", fakeMNC);
                 return fakeMNC;
             }
         }
@@ -1687,7 +1549,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
                 CGFloat scale = [scaleStr floatValue];
                 CGFloat width = [widthStr floatValue] / scale;
                 CGFloat height = [heightStr floatValue] / scale;
-                SafeLog(@"📱 Faking screen bounds: %.0fx%.0f", width, height);
+                SafeLog(@"ðŸ“± Faking screen bounds: %.0fx%.0f", width, height);
                 return CGRectMake(0, 0, width, height);
             }
         }
@@ -1704,7 +1566,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
             if (widthStr && heightStr) {
                 CGFloat width = [widthStr floatValue];
                 CGFloat height = [heightStr floatValue];
-                SafeLog(@"📱 Faking native bounds: %.0fx%.0f", width, height);
+                SafeLog(@"ðŸ“± Faking native bounds: %.0fx%.0f", width, height);
                 return CGRectMake(0, 0, width, height);
             }
         }
@@ -1748,7 +1610,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
             NSString *ramStr = [settings valueForKey:@"physicalMemory"];
             if (ramStr) {
                 unsigned long long ram = strtoull([ramStr UTF8String], NULL, 10);
-                SafeLog(@"🧠 Faking RAM: %llu bytes (%.1f GB)", ram, ram / 1073741824.0);
+                SafeLog(@"ðŸ§  Faking RAM: %llu bytes (%.1f GB)", ram, ram / 1073741824.0);
                 return ram;
             }
         }
@@ -1798,7 +1660,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
                 unsigned long long free = strtoull([freeStr UTF8String], NULL, 10);
                 fakeDict[NSFileSystemSize] = @(total);
                 fakeDict[NSFileSystemFreeSize] = @(free);
-                SafeLog(@"💾 Faking disk: %.1fGB free / %.1fGB total", free / 1073741824.0, total / 1073741824.0);
+                SafeLog(@"ðŸ’¾ Faking disk: %.1fGB free / %.1fGB total", free / 1073741824.0, total / 1073741824.0);
                 return fakeDict;
             }
         }
@@ -1817,7 +1679,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"📋 UIPasteboard.items blocked - returning empty");
+            SafeLog(@"ðŸ“‹ UIPasteboard.items blocked - returning empty");
             return @[];
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] UIPasteboard.items: %@", e.reason); }
@@ -1921,7 +1783,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
                 NSDate *fakeDate = [NSDate dateWithTimeIntervalSinceNow:-hoursAgo];
                 fakeDict[NSFileCreationDate] = fakeDate;
                 fakeDict[NSFileModificationDate] = fakeDate;
-                SafeLog(@"📅 Faking app install date: %@", fakeDate);
+                SafeLog(@"ðŸ“… Faking app install date: %@", fakeDate);
                 return fakeDict;
             }
         }
@@ -1935,39 +1797,14 @@ FILE* fake_fopen(const char *path, const char *mode) {
 // We hook DCDevice if available
 %hook DCDevice
 + (DCDevice *)currentDevice {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"🛡️ DCDevice.currentDevice blocked - returning nil");
-            return nil; // No DeviceCheck support = fresh device
-        }
-    } @catch(NSException *e) { SafeLog(@"[CRASH] DCDevice.currentDevice: %@", e.reason); }
     return %orig;
 }
 
 - (BOOL)isSupported {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"🛡️ DCDevice.isSupported blocked - returning NO");
-            return NO; // Device doesn't support DeviceCheck
-        }
-    } @catch(NSException *e) { SafeLog(@"[CRASH] DCDevice.isSupported: %@", e.reason); }
     return %orig;
 }
 
 - (void)generateTokenWithCompletionHandler:(void (^)(NSData *token, NSError *error))completion {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"🛡️ DCDevice.generateToken blocked - returning error");
-            if (completion) {
-                NSError *err = [NSError errorWithDomain:@"DCErrorDomain" code:1 userInfo:@{NSLocalizedDescriptionKey: @"DeviceCheck not available"}];
-                completion(nil, err);
-            }
-            return;
-        }
-    } @catch(NSException *e) { SafeLog(@"[CRASH] DCDevice.generateToken: %@", e.reason); }
     %orig;
 }
 %end
@@ -1975,23 +1812,10 @@ FILE* fake_fopen(const char *path, const char *mode) {
 // MARK: - Block AppAttest (iOS 14+ fraud detection)
 %hook DCAppAttestService
 + (DCAppAttestService *)sharedService {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"🛡️ DCAppAttestService.sharedService blocked");
-            return nil;
-        }
-    } @catch(NSException *e) { SafeLog(@"[CRASH] DCAppAttestService.sharedService: %@", e.reason); }
     return %orig;
 }
 
 - (BOOL)isSupported {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            return NO;
-        }
-    } @catch(NSException *e) { SafeLog(@"[CRASH] DCAppAttestService.isSupported: %@", e.reason); }
     return %orig;
 }
 %end
@@ -2008,7 +1832,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
         if ([settings isEnabled:@"hardwareInfo"]) {
             // Use stable cached UUID for this session
             NSString *fakeUID = generateStableUUID(@"appsflyer_uid");
-            SafeLog(@"📊 AppsFlyer UID faked (stable): %@", fakeUID);
+            SafeLog(@"ðŸ“Š AppsFlyer UID faked (stable): %@", fakeUID);
             return fakeUID;
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] AppsFlyerLib.getAppsFlyerUID: %@", e.reason); }
@@ -2016,12 +1840,6 @@ FILE* fake_fopen(const char *path, const char *mode) {
 }
 
 + (AppsFlyerLib *)shared {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            // Return orig but with faked UID
-        }
-    } @catch(NSException *e) { SafeLog(@"[CRASH] AppsFlyerLib.shared: %@", e.reason); }
     return %orig;
 }
 %end
@@ -2032,8 +1850,8 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            NSString *fakeADID = [[NSUUID UUID] UUIDString];
-            SafeLog(@"📊 Adjust ADID faked: %@", fakeADID);
+            NSString *fakeADID = generateStableUUID(@"adjust_adid");
+            SafeLog(@"Adjust ADID faked: %@", fakeADID);
             return fakeADID;
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] Adjust.adid: %@", e.reason); }
@@ -2043,13 +1861,6 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 %hook ADJConfig
 - (NSString *)appToken {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"📊 Adjust appToken blocked");
-            return nil;
-        }
-    } @catch(NSException *e) { SafeLog(@"[CRASH] ADJConfig.appToken: %@", e.reason); }
     return %orig;
 }
 %end
@@ -2057,13 +1868,6 @@ FILE* fake_fopen(const char *path, const char *mode) {
 // MARK: - Block Facebook SDK Analytics
 %hook FBSDKAppEvents
 + (void)activateApp {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"📊 Facebook activateApp blocked");
-            return; // Don't activate
-        }
-    } @catch(NSException *e) { SafeLog(@"[CRASH] FBSDKAppEvents.activateApp: %@", e.reason); }
     %orig;
 }
 
@@ -2071,8 +1875,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            NSString *fakeID = [[NSUUID UUID] UUIDString];
-            SafeLog(@"📊 Facebook anonymousID faked: %@", fakeID);
+            NSString *fakeID = generateStableUUID(@"facebook_anonymous_id");
             return fakeID;
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] FBSDKAppEvents.anonymousID: %@", e.reason); }
@@ -2083,13 +1886,6 @@ FILE* fake_fopen(const char *path, const char *mode) {
 // MARK: - Block Firebase Analytics
 %hook FIRAnalytics
 + (void)logEventWithName:(NSString *)name parameters:(NSDictionary *)parameters {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"📊 Firebase analytics event blocked: %@", name);
-            return; // Don't log
-        }
-    } @catch(NSException *e) { SafeLog(@"[CRASH] FIRAnalytics.logEventWithName: %@", e.reason); }
     %orig;
 }
 
@@ -2097,8 +1893,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            NSString *fakeID = [[NSUUID UUID] UUIDString];
-            SafeLog(@"📊 Firebase appInstanceID faked: %@", fakeID);
+            NSString *fakeID = generateStableUUID(@"firebase_app_instance_id");
             return fakeID;
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] FIRAnalytics.appInstanceID: %@", e.reason); }
@@ -2109,13 +1904,6 @@ FILE* fake_fopen(const char *path, const char *mode) {
 // MARK: - Block Branch.io SDK
 %hook Branch
 - (NSString *)getFirstReferringParams {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"📊 Branch firstReferringParams blocked");
-            return nil;
-        }
-    } @catch(NSException *e) { SafeLog(@"[CRASH] Branch.getFirstReferringParams: %@", e.reason); }
     return %orig;
 }
 
@@ -2131,7 +1919,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"mixpanel_distinct_id");
-            SafeLog(@"📊 Mixpanel distinctId faked (stable): %@", fakeID);
+            SafeLog(@"ðŸ“Š Mixpanel distinctId faked (stable): %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] Mixpanel.distinctId: %@", e.reason); }
@@ -2146,7 +1934,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"amplitude_device_id");
-            SafeLog(@"📊 Amplitude deviceId faked (stable): %@", fakeID);
+            SafeLog(@"ðŸ“Š Amplitude deviceId faked (stable): %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] Amplitude.getDeviceId: %@", e.reason); }
@@ -2170,8 +1958,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            NSString *fakeID = [[NSUUID UUID] UUIDString];
-            SafeLog(@"📊 Singular deviceId faked: %@", fakeID);
+            NSString *fakeID = generateStableUUID(@"singular_device_id");
             return fakeID;
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] Singular.getSingularDeviceId: %@", e.reason); }
@@ -2185,8 +1972,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            NSString *fakeID = [[NSUUID UUID] UUIDString];
-            SafeLog(@"📊 Kochava deviceId faked: %@", fakeID);
+            NSString *fakeID = generateStableUUID(@"kochava_device_id");
             return fakeID;
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] KochavaTracker.deviceIdString: %@", e.reason); }
@@ -2205,9 +1991,10 @@ FILE* fake_fopen(const char *path, const char *mode) {
         if ([settings isEnabled:@"hardwareInfo"]) {
             // Initialize base location once per session
             if (!gpsLocationInitialized) {
-                // Ho Chi Minh City area as default base
-                double baseLat = 10.7769;
-                double baseLong = 106.7009;
+                NSString *latStr = [settings valueForKey:@"gpsLat"];
+                NSString *lonStr = [settings valueForKey:@"gpsLon"];
+                double baseLat = latStr.length > 0 ? [latStr doubleValue] : 10.7769;
+                double baseLong = lonStr.length > 0 ? [lonStr doubleValue] : 106.7009;
                 // Add initial random offset (once)
                 double latOffset = (arc4random_uniform(1000) - 500) / 10000.0; // +/- 0.05 degrees (~5km)
                 double longOffset = (arc4random_uniform(1000) - 500) / 10000.0;
@@ -2234,7 +2021,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
                                                            horizontalAccuracy:cachedHAccuracy
                                                              verticalAccuracy:cachedVAccuracy
                                                                     timestamp:[NSDate date]];
-            SafeLog(@"📍 Location faked (stable with drift): %.6f, %.6f", fakeCoord.latitude, fakeCoord.longitude);
+            SafeLog(@"ðŸ“ Location faked (stable with drift): %.6f, %.6f", fakeCoord.latitude, fakeCoord.longitude);
             return fakeLocation;
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] CLLocationManager.location: %@", e.reason); }
@@ -2245,7 +2032,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"📍 startUpdatingLocation - will return fake location");
+            SafeLog(@"ðŸ“ startUpdatingLocation - will return fake location");
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] startUpdatingLocation: %@", e.reason); }
     %orig;
@@ -2255,20 +2042,13 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"📍 requestWhenInUseAuthorization intercepted");
+            SafeLog(@"ðŸ“ requestWhenInUseAuthorization intercepted");
         }
     } @catch(NSException *e) {}
     %orig;
 }
 
 + (CLAuthorizationStatus)authorizationStatus {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"📍 authorizationStatus returning AuthorizedWhenInUse");
-            return kCLAuthorizationStatusAuthorizedWhenInUse;
-        }
-    } @catch(NSException *e) {}
     return %orig;
 }
 %end
@@ -2281,11 +2061,15 @@ FILE* fake_fopen(const char *path, const char *mode) {
 - (NSTimeInterval)systemUptime {
     @try {
         FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            // Return a realistic uptime: 1 hour to 7 days (in seconds)
-            NSTimeInterval fakeUptime = 3600 + arc4random_uniform(604800);
-            SafeLog(@"⏱️ System uptime faked: %.0f seconds (%.1f hours)", fakeUptime, fakeUptime/3600);
-            return fakeUptime;
+        if ([settings isEnabled:@"hardwareInfo"] || [settings isEnabled:@"bootTime"]) {
+            NSString *bootTimeStr = [settings valueForKey:@"bootTime"];
+            NSTimeInterval bootTime = [bootTimeStr doubleValue];
+            NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+            if (bootTime > 0 && now > bootTime) {
+                NSTimeInterval fakeUptime = now - bootTime;
+                if (fakeUptime < 60) fakeUptime = 60;
+                return fakeUptime;
+            }
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] NSProcessInfo.systemUptime: %@", e.reason); }
     return %orig;
@@ -2341,13 +2125,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 %hook UITextInputMode
 + (NSArray *)activeInputModes {
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"⌨️ activeInputModes intercepted");
-            // Could return fake keyboard list here
-        }
-    } @catch(NSException *e) {}
+    // Keep original behavior to avoid breaking keyboard/input flows.
     return %orig;
 }
 %end
@@ -2384,8 +2162,10 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            // Return valid-looking receipt URL to appear as App Store install
-            SafeLog(@"🏪 appStoreReceiptURL intercepted");
+            NSURL *orig = %orig;
+            if (orig) return orig;
+            NSString *fallback = [[self bundlePath] stringByAppendingPathComponent:@"StoreKit/receipt"];
+            return [NSURL fileURLWithPath:fallback];
         }
     } @catch(NSException *e) {}
     return %orig;
@@ -2406,7 +2186,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
         if ([settings isEnabled:@"jailbreak"] && url) {
             NSString *scheme = url.scheme.lowercaseString;
             if ([jailbreakURLSchemes containsObject:scheme]) {
-                SafeLog(@"🛡️ canOpenURL blocked for jailbreak scheme: %@", scheme);
+                SafeLog(@"ðŸ›¡ï¸ canOpenURL blocked for jailbreak scheme: %@", scheme);
                 return NO;
             }
         }
@@ -2433,7 +2213,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
             for (NSString *key in keysToRemove) {
                 [env removeObjectForKey:key];
             }
-            SafeLog(@"🛡️ Cleaned environment variables");
+            SafeLog(@"ðŸ›¡ï¸ Cleaned environment variables");
             return env;
         }
     } @catch(NSException *e) {}
@@ -2446,7 +2226,7 @@ OSStatus fake_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"keychain"]) {
-            SafeLog(@"🔐 SecItemCopyMatching blocked - returning errSecItemNotFound");
+            SafeLog(@"ðŸ” SecItemCopyMatching blocked - returning errSecItemNotFound");
             if (result) *result = NULL;
             return errSecItemNotFound; // -25300: Item not found
         }
@@ -2455,14 +2235,14 @@ OSStatus fake_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
     if (orig_SecItemCopyMatching_ptr) {
         return orig_SecItemCopyMatching_ptr(query, result);
     }
-    return errSecItemNotFound;
+    return errSecNotAvailable;
 }
 
 OSStatus fake_SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"keychain"]) {
-            SafeLog(@"🔐 SecItemAdd blocked - faking success without storing");
+            SafeLog(@"ðŸ” SecItemAdd blocked - faking success without storing");
             if (result) *result = NULL;
             return errSecSuccess; // Fake success but don't actually store
         }
@@ -2471,14 +2251,14 @@ OSStatus fake_SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result) {
     if (orig_SecItemAdd_ptr) {
         return orig_SecItemAdd_ptr(attributes, result);
     }
-    return errSecSuccess;
+    return errSecNotAvailable;
 }
 
 OSStatus fake_SecItemDelete(CFDictionaryRef query) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"keychain"]) {
-            SafeLog(@"🔐 SecItemDelete - returning success");
+            SafeLog(@"ðŸ” SecItemDelete - returning success");
             return errSecSuccess;
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] SecItemDelete: %@", e.reason); }
@@ -2486,7 +2266,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
     if (orig_SecItemDelete_ptr) {
         return orig_SecItemDelete_ptr(query);
     }
-    return errSecSuccess;
+    return errSecNotAvailable;
 }
 
 // MARK: - Shake to Open Settings (Alternative to 4-finger gesture)
@@ -2501,7 +2281,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         // Debounce: only trigger once every 2 seconds
         if (currentTime - lastShakeTime > 2.0) {
             lastShakeTime = currentTime;
-            SafeLog(@"📳 Shake detected! Opening Settings UI...");
+            SafeLog(@"ðŸ“³ Shake detected! Opening Settings UI...");
             
             dispatch_async(dispatch_get_main_queue(), ^{
                 ShowSettingsUI();
@@ -2520,6 +2300,14 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 // MARK: - Tweak Initialization (FIXED)
 %ctor {
     @autoreleasepool {
+        NSString *bundleId = getRealBundleIdentifier();
+        if ([bundleId hasPrefix:@"com.apple."]) {
+            return;
+        }
+
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        gDebugLoggingEnabled = [defaults boolForKey:@"FakeInfoDebugLogs"];
+
         signal(SIGSEGV, CrashHandler);
         signal(SIGBUS, CrashHandler);
         signal(SIGABRT, CrashHandler);
@@ -2552,59 +2340,20 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
             if (ptr_SecItemAdd) MSHookFunction(ptr_SecItemAdd, (void *)&fake_SecItemAdd, (void **)&orig_SecItemAdd_ptr);
             if (ptr_SecItemDelete) MSHookFunction(ptr_SecItemDelete, (void *)&fake_SecItemDelete, (void **)&orig_SecItemDelete_ptr);
             
-            SafeLog(@"🔐 Keychain hooks installed");
+            SafeLog(@"Keychain hooks installed");
 
             dlclose(handle);
         } else {
             SafeLog(@"Error opening handle for current executable: %s", dlerror());
         }
 
-        SafeLog(@"🎭 [FakeTweak] FIXED VERSION LOADED! Created by @thanhdo1110");
+        SafeLog(@"FakeInfo initialized");
         
-        // Delay to ensure app is ready, then show startup alert
+        // Delay setup until the app is ready.
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             SetupGestureRecognizer();
-            
-            // Show startup alert to confirm tweak is working
-            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"🎭 FakeInfo Loaded!"
-                                                                          message:@"Tweak đã được inject thành công!\n\n• Tap 'Open Settings' để mở cài đặt\n• Hoặc dùng 4 ngón giữ 1.5s"
-                                                                   preferredStyle:UIAlertControllerStyleAlert];
-            
-            [alert addAction:[UIAlertAction actionWithTitle:@"Open Settings" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            if ([defaults boolForKey:@"FakeInfoShowStartupUI"]) {
                 ShowSettingsUI();
-            }]];
-            
-            [alert addAction:[UIAlertAction actionWithTitle:@"Đóng" style:UIAlertActionStyleCancel handler:nil]];
-            
-            // Find top view controller to present alert
-            UIViewController *topVC = nil;
-            if (@available(iOS 13.0, *)) {
-                for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
-                    if (scene.activationState == UISceneActivationStateForegroundActive) {
-                        for (UIWindow *window in scene.windows) {
-                            if (window.isKeyWindow) {
-                                topVC = window.rootViewController;
-                                while (topVC.presentedViewController) {
-                                    topVC = topVC.presentedViewController;
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            if (!topVC) {
-                #pragma clang diagnostic push
-                #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-                topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
-                while (topVC.presentedViewController) {
-                    topVC = topVC.presentedViewController;
-                }
-                #pragma clang diagnostic pop
-            }
-            
-            if (topVC) {
-                [topVC presentViewController:alert animated:YES completion:nil];
             }
         });
     }
@@ -2621,7 +2370,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"incognia_device_id");
-            SafeLog(@"🛡️ Incognia deviceId blocked: %@", fakeID);
+            SafeLog(@"ðŸ›¡ï¸ Incognia deviceId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -2633,7 +2382,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"incognia_install_id");
-            SafeLog(@"🛡️ Incognia installationId blocked: %@", fakeID);
+            SafeLog(@"ðŸ›¡ï¸ Incognia installationId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -2648,7 +2397,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"shield_device_id");
-            SafeLog(@"🛡️ SHIELD deviceId blocked: %@", fakeID);
+            SafeLog(@"ðŸ›¡ï¸ SHIELD deviceId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -2660,7 +2409,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"shield_session_id");
-            SafeLog(@"🛡️ SHIELD sessionId blocked: %@", fakeID);
+            SafeLog(@"ðŸ›¡ï¸ SHIELD sessionId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -2675,7 +2424,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"truevision_device_id");
-            SafeLog(@"🛡️ TransUnion deviceId blocked: %@", fakeID);
+            SafeLog(@"ðŸ›¡ï¸ TransUnion deviceId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -2689,7 +2438,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"truevision_fingerprint");
-            SafeLog(@"🛡️ TransUnion fingerprint blocked: %@", fakeID);
+            SafeLog(@"ðŸ›¡ï¸ TransUnion fingerprint blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -2704,7 +2453,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"sift_device_id");
-            SafeLog(@"🛡️ Sift deviceId blocked: %@", fakeID);
+            SafeLog(@"ðŸ›¡ï¸ Sift deviceId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -2730,7 +2479,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"perimeterx_vid");
-            SafeLog(@"🛡️ PerimeterX VID blocked: %@", fakeID);
+            SafeLog(@"ðŸ›¡ï¸ PerimeterX VID blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -2756,7 +2505,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"fingerprintjs_visitor_id");
-            SafeLog(@"🛡️ FingerprintJS visitorId blocked: %@", fakeID);
+            SafeLog(@"ðŸ›¡ï¸ FingerprintJS visitorId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -2771,7 +2520,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"forter_device_id");
-            SafeLog(@"🛡️ Forter deviceId blocked: %@", fakeID);
+            SafeLog(@"ðŸ›¡ï¸ Forter deviceId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -2786,7 +2535,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"riskified_session_id");
-            SafeLog(@"🛡️ Riskified sessionId blocked: %@", fakeID);
+            SafeLog(@"ðŸ›¡ï¸ Riskified sessionId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -2860,7 +2609,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         CMAccelerometerData *orig = %orig;
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"] && orig) {
-            SafeLog(@"📊 Accelerometer data intercepted");
+            SafeLog(@"ðŸ“Š Accelerometer data intercepted");
         }
         return orig;
     } @catch(NSException *e) {}
@@ -2894,7 +2643,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"🎤 availableInputs intercepted");
+            SafeLog(@"ðŸŽ¤ availableInputs intercepted");
         }
     } @catch(NSException *e) {}
     return %orig;
@@ -2904,7 +2653,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
     @try {
         FakeSettings *settings = [FakeSettings shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            SafeLog(@"🔊 currentRoute intercepted");
+            SafeLog(@"ðŸ”Š currentRoute intercepted");
         }
     } @catch(NSException *e) {}
     return %orig;
@@ -2928,7 +2677,7 @@ int fake_ptrace(int request, pid_t pid, caddr_t addr, int data) {
     if ([settings isEnabled:@"jailbreak"]) {
         // PT_DENY_ATTACH = 31
         if (request == 31) {
-            SafeLog(@"🛡️ ptrace PT_DENY_ATTACH blocked");
+            SafeLog(@"ðŸ›¡ï¸ ptrace PT_DENY_ATTACH blocked");
             return 0;
         }
     }
@@ -2939,7 +2688,7 @@ int fake_ptrace(int request, pid_t pid, caddr_t addr, int data) {
 pid_t fake_fork(void) {
     FakeSettings *settings = [FakeSettings shared];
     if ([settings isEnabled:@"jailbreak"]) {
-        SafeLog(@"🛡️ fork() blocked");
+        SafeLog(@"ðŸ›¡ï¸ fork() blocked");
         return -1; // Return error (non-jailbroken devices should not allow fork)
     }
     return orig_fork ? orig_fork() : -1;
@@ -2954,7 +2703,7 @@ char* fake_getenv(const char *name) {
             strstr(name, "MobileSubstrate") ||
             strstr(name, "Substrate") ||
             strstr(name, "SIMULATOR")) {
-            SafeLog(@"🛡️ getenv blocked: %s", name);
+            SafeLog(@"ðŸ›¡ï¸ getenv blocked: %s", name);
             return NULL;
         }
     }
@@ -2969,7 +2718,7 @@ int fake_lstat(const char *path, struct stat *buf) {
             strstr(path, "substrate") || strstr(path, "MobileSubstrate") ||
             strstr(path, "Library/MobileSubstrate") || strstr(path, "sileo") ||
             strstr(path, "zebra") || strstr(path, "filza") || strstr(path, "ssh")) {
-            SafeLog(@"🛡️ lstat blocked: %s", path);
+            SafeLog(@"ðŸ›¡ï¸ lstat blocked: %s", path);
             errno = ENOENT;
             return -1;
         }
@@ -2983,14 +2732,7 @@ int fake_lstat(const char *path, struct stat *buf) {
 
 // _dyld_image_count hook - hide injected dylibs
 %hookf(uint32_t, _dyld_image_count) {
-    FakeSettings *settings = [FakeSettings shared];
-    if ([settings isEnabled:@"jailbreak"]) {
-        uint32_t count = %orig;
-        // Return slightly reduced count to hide some injected dylibs
-        // Note: This is a simplified approach
-        SafeLog(@"🛡️ _dyld_image_count intercepted: %u", count);
-        return count;
-    }
+    // Keep original count for consistency; image-name sanitization happens below.
     return %orig;
 }
 
@@ -3008,7 +2750,7 @@ int fake_lstat(const char *path, struct stat *buf) {
             strstr(name, "Cycript") ||
             strstr(name, "libhooker") ||
             strstr(name, "substitute")) {
-            SafeLog(@"🛡️ _dyld_get_image_name hidden: %s", name);
+            SafeLog(@"ðŸ›¡ï¸ _dyld_get_image_name hidden: %s", name);
             return "/usr/lib/system/libsystem_c.dylib"; // Return safe system lib
         }
     }
@@ -3025,28 +2767,7 @@ int fake_lstat(const char *path, struct stat *buf) {
 // MARK: - Phase 24: SecItem Keychain Deep Hooks
 // ============================================================================
 
-// SecItemCopyMatching hook - intercept keychain queries
-%hookf(OSStatus, SecItemCopyMatching, CFDictionaryRef query, CFTypeRef *result) {
-    FakeSettings *settings = [FakeSettings shared];
-    if ([settings isEnabled:@"keychain"]) {
-        SafeLog(@"🔐 SecItemCopyMatching intercepted");
-        // Return not found for fresh device simulation
-        if (result) *result = NULL;
-        return errSecItemNotFound;
-    }
-    return %orig(query, result);
-}
-
-// SecItemAdd hook - fake success without storing
-%hookf(OSStatus, SecItemAdd, CFDictionaryRef attributes, CFTypeRef *result) {
-    FakeSettings *settings = [FakeSettings shared];
-    if ([settings isEnabled:@"keychain"]) {
-        SafeLog(@"🔐 SecItemAdd intercepted (faking success)");
-        if (result) *result = NULL;
-        return errSecSuccess;
-    }
-    return %orig(attributes, result);
-}
+// SecItem* are already hooked via MSHookFunction above to avoid duplicate hook chains.
 
 // ============================================================================
 // MARK: - Constructor: Setup deep hooks
@@ -3054,26 +2775,32 @@ int fake_lstat(const char *path, struct stat *buf) {
 
 %ctor {
     @autoreleasepool {
-        SafeLog(@"🚀 FakeInfo Enhanced initializing with deep hooks...");
+        NSString *bundleId = getRealBundleIdentifier();
+        if ([bundleId hasPrefix:@"com.apple."]) {
+            return;
+        }
+
+        SafeLog(@"Installing deep hooks");
         
         // Hook ptrace
-        MSHookFunction((void *)MSFindSymbol(NULL, "_ptrace"), (void *)fake_ptrace, (void **)&orig_ptrace);
+        void *ptr_ptrace = (void *)MSFindSymbol(NULL, "_ptrace");
+        if (ptr_ptrace) MSHookFunction(ptr_ptrace, (void *)fake_ptrace, (void **)&orig_ptrace);
         
         // Hook fork
-        MSHookFunction((void *)MSFindSymbol(NULL, "_fork"), (void *)fake_fork, (void **)&orig_fork);
+        void *ptr_fork = (void *)MSFindSymbol(NULL, "_fork");
+        if (ptr_fork) MSHookFunction(ptr_fork, (void *)fake_fork, (void **)&orig_fork);
         
         // Hook getenv
-        MSHookFunction((void *)MSFindSymbol(NULL, "_getenv"), (void *)fake_getenv, (void **)&orig_getenv);
+        void *ptr_getenv = (void *)MSFindSymbol(NULL, "_getenv");
+        if (ptr_getenv) MSHookFunction(ptr_getenv, (void *)fake_getenv, (void **)&orig_getenv);
         
         // Hook lstat
-        MSHookFunction((void *)MSFindSymbol(NULL, "_lstat"), (void *)fake_lstat, (void **)&orig_lstat);
+        void *ptr_lstat = (void *)MSFindSymbol(NULL, "_lstat");
+        if (ptr_lstat) MSHookFunction(ptr_lstat, (void *)fake_lstat, (void **)&orig_lstat);
         
-        SafeLog(@"✅ Deep hooks installed: ptrace, fork, getenv, lstat");
-        
-        // Setup gesture recognizer
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            SetupGestureRecognizer();
-        });
+        SafeLog(@"Deep hooks installed");
     }
 }
+
+
 
