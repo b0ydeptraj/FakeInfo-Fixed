@@ -1,4 +1,4 @@
-﻿// FakeInfo-UIDevice Tweak - FIXED VERSION
+// FakeInfo-UIDevice Tweak - FIXED VERSION
 // Fixed: MSHookFunction now saves original function pointers to prevent infinite recursion
 
 #import <UIKit/UIKit.h>
