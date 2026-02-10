@@ -2727,215 +2727,47 @@ int fake_lstat(const char *path, struct stat *buf) {
 }
 
 // ============================================================================
-// MARK: - Phase 22: dyld Image Detection Bypass (IMPROVED)
+// MARK: - Phase 22: dyld Image Detection Bypass
 // ============================================================================
 
-// Array of unique system lib paths to avoid duplicate collision detection
-static const char *systemLibPaths[] = {
-    "/usr/lib/system/libsystem_c.dylib",
-    "/usr/lib/system/libsystem_kernel.dylib",
-    "/usr/lib/system/libsystem_platform.dylib",
-    "/usr/lib/system/libsystem_pthread.dylib",
-    "/usr/lib/system/libsystem_malloc.dylib",
-    "/usr/lib/system/libsystem_info.dylib",
-    "/usr/lib/system/libsystem_networkextension.dylib",
-    "/usr/lib/system/libsystem_asl.dylib",
-    "/usr/lib/system/libsystem_notify.dylib",
-    "/usr/lib/system/libsystem_sandbox.dylib",
-    "/usr/lib/system/libsystem_trace.dylib",
-    "/usr/lib/system/libsystem_containermanager.dylib",
-    "/usr/lib/system/libsystem_coreservices.dylib",
-    "/usr/lib/system/libsystem_darwin.dylib",
-    "/usr/lib/system/libsystem_dnssd.dylib",
-    "/usr/lib/system/libsystem_featureflags.dylib"
-};
-static const int systemLibPathsCount = 16;
+// _dyld_image_count hook - hide injected dylibs
+%hookf(uint32_t, _dyld_image_count) {
+    // Keep original count for consistency; image-name sanitization happens below.
+    return %orig;
+}
 
-// Track hidden image count for _dyld_image_count consistency
-static uint32_t hiddenImageCount = 0;
-static BOOL hiddenCountCalculated = NO;
-
-static BOOL isJailbreakDylib(const char *name) {
-    if (!name) return NO;
-    return (strstr(name, "MobileSubstrate") ||
+// _dyld_get_image_name hook - hide MobileSubstrate dylibs
+%hookf(const char*, _dyld_get_image_name, uint32_t image_index) {
+    const char *name = %orig(image_index);
+    FakeSettings *settings = [FakeSettings shared];
+    if ([settings isEnabled:@"jailbreak"] && name) {
+        // Hide jailbreak-related dylib names
+        if (strstr(name, "MobileSubstrate") ||
             strstr(name, "substrate") ||
             strstr(name, "SubstrateLoader") ||
             strstr(name, "TweakInject") ||
             strstr(name, "Inject") ||
             strstr(name, "Cycript") ||
             strstr(name, "libhooker") ||
-            strstr(name, "substitute") ||
-            strstr(name, "FakeInfo") ||
-            strstr(name, "ellekit") ||
-            strstr(name, "Cephei") ||
-            strstr(name, "rooky") ||
-            strstr(name, "shadow") ||
-            strstr(name, "Liberty") ||
-            strstr(name, "Choicy"));
-}
-
-// Calculate hidden image count once
-static void calculateHiddenCount(void) {
-    if (hiddenCountCalculated) return;
-    uint32_t total = _dyld_image_count();
-    uint32_t count = 0;
-    for (uint32_t i = 0; i < total; i++) {
-        const char *name = _dyld_get_image_name(i);
-        if (isJailbreakDylib(name)) count++;
-    }
-    hiddenImageCount = count;
-    hiddenCountCalculated = YES;
-}
-
-// _dyld_image_count hook - subtract hidden dylibs for consistency
-%hookf(uint32_t, _dyld_image_count) {
-    FakeSettings *settings = [FakeSettings shared];
-    if ([settings isEnabled:@"jailbreak"]) {
-        uint32_t orig = %orig;
-        calculateHiddenCount();
-        return orig - hiddenImageCount;
-    }
-    return %orig;
-}
-
-// _dyld_get_image_name hook - return UNIQUE paths per hidden image
-%hookf(const char*, _dyld_get_image_name, uint32_t image_index) {
-    const char *name = %orig(image_index);
-    FakeSettings *settings = [FakeSettings shared];
-    if ([settings isEnabled:@"jailbreak"] && name) {
-        if (isJailbreakDylib(name)) {
-            // Return unique system lib path per index to avoid duplicate collision
-            int safeIdx = image_index % systemLibPathsCount;
-            return systemLibPaths[safeIdx];
+            strstr(name, "substitute")) {
+            SafeLog(@"ðŸ›¡ï¸ _dyld_get_image_name hidden: %s", name);
+            return "/usr/lib/system/libsystem_c.dylib"; // Return safe system lib
         }
     }
     return name;
 }
 
 // ============================================================================
-// MARK: - Phase 23: dladdr Hook (Counter Function Integrity Check)
+// MARK: - Phase 23: (sandbox_check removed - not publicly linked)
 // ============================================================================
-// Apps use dladdr() to check if hooked functions resolve to system libraries.
-// If a function is hooked, dladdr returns the hooking dylib path instead.
-// We hook dladdr to always report system library paths.
-
-static int (*orig_dladdr_ptr)(const void *, Dl_info *) = NULL;
-
-int fake_dladdr(const void *addr, Dl_info *info) {
-    int result = orig_dladdr_ptr ? orig_dladdr_ptr(addr, info) : 0;
-    
-    FakeSettings *settings = [FakeSettings shared];
-    if (result && info && [settings isEnabled:@"jailbreak"]) {
-        // If the resolved module is a jailbreak/tweak dylib, fake it
-        if (info->dli_fname && isJailbreakDylib(info->dli_fname)) {
-            info->dli_fname = "/usr/lib/system/libsystem_c.dylib";
-            info->dli_sname = NULL;
-            info->dli_saddr = NULL;
-        }
-    }
-    return result;
-}
+// Note: sandbox_check is a private function and cannot be hooked with %hookf
+// Alternative detection methods are handled via file system hooks above
 
 // ============================================================================
-// MARK: - Phase 24: Smart Keychain Passthrough
+// MARK: - Phase 24: SecItem Keychain Deep Hooks
 // ============================================================================
-// Instead of blocking ALL keychain reads (detectable!), only intercept
-// device-fingerprint related keys. Let auth/credential keys pass through.
 
-static BOOL isDeviceFingerprintKey(CFDictionaryRef query) {
-    if (!query) return NO;
-    
-    CFStringRef service = (CFStringRef)CFDictionaryGetValue(query, kSecAttrService);
-    CFStringRef account = (CFStringRef)CFDictionaryGetValue(query, kSecAttrAccount);
-    CFStringRef label = (CFStringRef)CFDictionaryGetValue(query, kSecAttrLabel);
-    
-    NSArray *fingerprintServices = @[
-        @"device.uuid", @"device_id", @"deviceId", @"device_token",
-        @"unique_id", @"uniqueId", @"fingerprint", @"device_fingerprint",
-        @"install_id", @"installId", @"analytics_id", @"tracking_id",
-        @"appsflyer", @"adjust", @"branch", @"kochava",
-        @"singular", @"airbridge", @"tenjin", @"tune",
-        @"device.identifier", @"device-identifier"
-    ];
-    
-    NSString *svc = service ? (__bridge NSString *)service : nil;
-    NSString *acct = account ? (__bridge NSString *)account : nil;
-    NSString *lbl = label ? (__bridge NSString *)label : nil;
-    
-    for (NSString *fp in fingerprintServices) {
-        if (svc && [svc.lowercaseString containsString:fp.lowercaseString]) return YES;
-        if (acct && [acct.lowercaseString containsString:fp.lowercaseString]) return YES;
-        if (lbl && [lbl.lowercaseString containsString:fp.lowercaseString]) return YES;
-    }
-    
-    return NO;
-}
-
-OSStatus fake_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
-    FakeSettings *settings = [FakeSettings shared];
-    if ([settings isEnabled:@"keychain"]) {
-        if (isDeviceFingerprintKey(query)) {
-            if (result) *result = NULL;
-            return errSecItemNotFound;
-        }
-    }
-    return orig_SecItemCopyMatching_ptr ? orig_SecItemCopyMatching_ptr(query, result) : errSecItemNotFound;
-}
-
-OSStatus fake_SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result) {
-    FakeSettings *settings = [FakeSettings shared];
-    if ([settings isEnabled:@"keychain"]) {
-        if (isDeviceFingerprintKey(attributes)) {
-            if (result) *result = NULL;
-            return errSecSuccess;
-        }
-    }
-    return orig_SecItemAdd_ptr ? orig_SecItemAdd_ptr(attributes, result) : errSecSuccess;
-}
-
-OSStatus fake_SecItemDelete(CFDictionaryRef query) {
-    FakeSettings *settings = [FakeSettings shared];
-    if ([settings isEnabled:@"keychain"]) {
-        if (isDeviceFingerprintKey(query)) {
-            return errSecSuccess;
-        }
-    }
-    return orig_SecItemDelete_ptr ? orig_SecItemDelete_ptr(query) : errSecSuccess;
-}
-
-// ============================================================================
-// MARK: - Phase 25: File Attribute Date Consistency
-// ============================================================================
-// Cache file dates for app bundle so repeated queries return same values.
-
-static NSMutableDictionary *fileAttributeCache = nil;
-
-%hook NSFileManager
-- (NSDictionary *)attributesOfItemAtPath:(NSString *)path error:(NSError **)error {
-    NSDictionary *attrs = %orig;
-    
-    @try {
-        FakeSettings *settings = [FakeSettings shared];
-        if (attrs && [settings isEnabled:@"jailbreak"]) {
-            NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
-            if (bundlePath && [path hasPrefix:bundlePath]) {
-                @synchronized(stableIdLock) {
-                    if (!fileAttributeCache) {
-                        fileAttributeCache = [[NSMutableDictionary alloc] init];
-                    }
-                    NSDictionary *cached = fileAttributeCache[path];
-                    if (cached) {
-                        return cached;
-                    }
-                    fileAttributeCache[path] = attrs;
-                }
-            }
-        }
-    } @catch(NSException *e) {}
-    
-    return attrs;
-}
-%end
+// SecItem* are already hooked via MSHookFunction above to avoid duplicate hook chains.
 
 // ============================================================================
 // MARK: - Constructor: Setup deep hooks
@@ -2948,6 +2780,8 @@ static NSMutableDictionary *fileAttributeCache = nil;
             return;
         }
 
+        SafeLog(@"Installing deep hooks");
+        
         // Hook ptrace
         void *ptr_ptrace = (void *)MSFindSymbol(NULL, "_ptrace");
         if (ptr_ptrace) MSHookFunction(ptr_ptrace, (void *)fake_ptrace, (void **)&orig_ptrace);
@@ -2964,13 +2798,9 @@ static NSMutableDictionary *fileAttributeCache = nil;
         void *ptr_lstat = (void *)MSFindSymbol(NULL, "_lstat");
         if (ptr_lstat) MSHookFunction(ptr_lstat, (void *)fake_lstat, (void **)&orig_lstat);
         
-        // Hook dladdr (counter function integrity checks)
-        void *ptr_dladdr = (void *)MSFindSymbol(NULL, "_dladdr");
-        if (ptr_dladdr) MSHookFunction(ptr_dladdr, (void *)fake_dladdr, (void **)&orig_dladdr_ptr);
-        
-        // Hook SecItem (smart keychain passthrough)
-        MSHookFunction((void *)SecItemCopyMatching, (void *)fake_SecItemCopyMatching, (void **)&orig_SecItemCopyMatching_ptr);
-        MSHookFunction((void *)SecItemAdd, (void *)fake_SecItemAdd, (void **)&orig_SecItemAdd_ptr);
-        MSHookFunction((void *)SecItemDelete, (void *)fake_SecItemDelete, (void **)&orig_SecItemDelete_ptr);
+        SafeLog(@"Deep hooks installed");
     }
 }
+
+
+
