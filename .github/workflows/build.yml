@@ -58,7 +58,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: FakeInfo-deb
+        name: SystemConfig-deb
         path: packages/*.deb
         if-no-files-found: warn
         
@@ -66,6 +66,6 @@ jobs:
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: FakeInfo-dylib
+        name: SystemConfig-dylib
         path: output/*.dylib
         if-no-files-found: warn

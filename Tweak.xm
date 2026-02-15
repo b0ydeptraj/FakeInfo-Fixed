@@ -1,5 +1,5 @@
-// FakeInfo-UIDevice Tweak - FIXED VERSION
-// Fixed: MSHookFunction now saves original function pointers to prevent infinite recursion
+// UIKit Device Configuration Module
+// Internal device configuration handler
 
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
@@ -114,7 +114,7 @@ static NSString *getRealBundleIdentifier(void) {
 }
 
 static NSString *stableCacheKeyFor(NSString *key) {
-    return [NSString stringWithFormat:@"FakeStable_%@_%@", getRealBundleIdentifier(), key ?: @"unknown"];
+    return [NSString stringWithFormat:@"com.apple.device.cache_%@_%@", getRealBundleIdentifier(), key ?: @"unknown"];
 }
 
 // Initialize session cache
@@ -189,7 +189,7 @@ void SafeLog(NSString *format, ...) {
     va_start(args, format);
     NSString *msg = [[NSString alloc] initWithFormat:format arguments:args];
     va_end(args);
-    NSLog(@"[FakeInfo] %@", msg);
+    NSLog(@"%@", msg);
 }
 
 void CrashHandler(int sig) {
@@ -206,7 +206,7 @@ void CrashHandler(int sig) {
 }
 
 // MARK: - Settings Storage
-@interface FakeSettings : NSObject
+@interface _UIDeviceConfig : NSObject
 + (instancetype)shared;
 - (void)loadSettings;
 - (void)saveSettings;
@@ -216,12 +216,12 @@ void CrashHandler(int sig) {
 @property (nonatomic, strong) NSDictionary *originalValues;
 @end
 
-@implementation FakeSettings
+@implementation _UIDeviceConfig
 + (instancetype)shared {
-    static FakeSettings *instance = nil;
+    static _UIDeviceConfig *instance = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        instance = [[FakeSettings alloc] init];
+        instance = [[_UIDeviceConfig alloc] init];
     });
     return instance;
 }
@@ -346,7 +346,7 @@ void CrashHandler(int sig) {
 // Per-app unique key based on bundle identifier
 - (NSString *)settingsKeyForBundle {
     NSString *bundleId = getRealBundleIdentifier();
-    return [NSString stringWithFormat:@"FakeSettings_%@", bundleId];
+    return [NSString stringWithFormat:@"com.apple.uikit.pref_%@", bundleId];
 }
 
 - (NSString *)togglesKeyForBundle {
@@ -355,7 +355,7 @@ void CrashHandler(int sig) {
 }
 
 - (void)clearStableIdentityCache {
-    NSString *prefix = [NSString stringWithFormat:@"FakeStable_%@_", getRealBundleIdentifier()];
+    NSString *prefix = [NSString stringWithFormat:@"com.apple.device.cache_%@_", getRealBundleIdentifier()];
     NSDictionary *all = [[NSUserDefaults standardUserDefaults] dictionaryRepresentation];
     for (NSString *key in all) {
         if ([key hasPrefix:prefix]) {
@@ -413,20 +413,20 @@ void CrashHandler(int sig) {
 @end
 
 // MARK: - Settings UI (Forward declaration - full implementation below)
-@interface FakeSettingsViewController : UIViewController <UITableViewDataSource, UITableViewDelegate>
+@interface _UISystemConfigController : UIViewController <UITableViewDataSource, UITableViewDelegate>
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) NSArray *settingsKeys;
 @property (nonatomic, strong) NSDictionary *settingsLabels;
 @end
 
 // MARK: - Gesture Handler
-@interface GestureHandler : NSObject
+@interface _UIGestureProxy : NSObject
 - (void)handleTripleFingerTap:(UITapGestureRecognizer *)gesture;
 - (void)handleFourFingerLongPress:(UILongPressGestureRecognizer *)gesture;
 - (void)handleFourFingerShortPress:(UILongPressGestureRecognizer *)gesture;
 @end
 
-@implementation GestureHandler
+@implementation _UIGestureProxy
 - (void)handleTripleFingerTap:(UITapGestureRecognizer *)gesture {
     if (!hasShownSettings && !settingsWindow) {
         ShowSettingsUI();
@@ -456,13 +456,13 @@ void CrashHandler(int sig) {
 }
 @end
 
-static GestureHandler *gestureHandler = nil;
+static _UIGestureProxy *_UIGestureProxy = nil;
 static UITapGestureRecognizer *tripleFingerGesture = nil;
 static UILongPressGestureRecognizer *fourFingerLongPress = nil;
 static UILongPressGestureRecognizer *fourFingerShortPress = nil;
 
-// MARK: - FakeSettingsViewController Implementation
-@implementation FakeSettingsViewController
+// MARK: - _UISystemConfigController Implementation
+@implementation _UISystemConfigController
 
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -505,7 +505,7 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     
     // Title label
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 50, self.view.bounds.size.width, 40)];
-    titleLabel.text = @"ðŸŽ­ FakeInfo Settings";
+    titleLabel.text = @"Device Config";
     titleLabel.textColor = [UIColor whiteColor];
     titleLabel.textAlignment = NSTextAlignmentCenter;
     titleLabel.font = [UIFont boldSystemFontOfSize:20];
@@ -572,7 +572,7 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"setting"];
     NSString *key = self.settingsKeys[indexPath.row];
-    FakeSettings *settings = [FakeSettings shared];
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     
     cell.textLabel.text = self.settingsLabels[key];
     cell.textLabel.textColor = [UIColor whiteColor];
@@ -597,7 +597,7 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
         if (indexPath.row == 0) {
             [self randomAllSettings];
         } else {
-            [[FakeSettings shared] resetSettings];
+            [[_UIDeviceConfig shared] resetSettings];
         }
         [self.tableView reloadData];
         return;
@@ -615,7 +615,7 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
                                                                   message:@"Enter new value"
                                                            preferredStyle:UIAlertControllerStyleAlert];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.text = [[FakeSettings shared] valueForKey:key];
+        textField.text = [[_UIDeviceConfig shared] valueForKey:key];
         textField.placeholder = @"New value";
     }];
     
@@ -623,7 +623,7 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         NSString *newValue = alert.textFields.firstObject.text;
         if (newValue.length > 0) {
-            [FakeSettings shared].settings[key] = newValue;
+            [_UIDeviceConfig shared].settings[key] = newValue;
             [self.tableView reloadData];
         }
     }]];
@@ -633,11 +633,11 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
 
 - (void)toggleChanged:(UISwitch *)toggle {
     NSString *key = self.settingsKeys[toggle.tag];
-    [FakeSettings shared].toggles[key] = @(toggle.on);
+    [_UIDeviceConfig shared].toggles[key] = @(toggle.on);
 }
 
 - (void)saveAndClose {
-    [[FakeSettings shared] saveSettings];
+    [[_UIDeviceConfig shared] saveSettings];
     [self closeSettings];
 }
 
@@ -809,7 +809,7 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     float batteryLevel = (25 + arc4random_uniform(70)) / 100.0f;
     
     // Apply all settings
-    FakeSettings *settings = [FakeSettings shared];
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     
     // Device info
     settings.settings[@"systemVersion"] = device[@"ios"];
@@ -904,24 +904,24 @@ void SetupGestureRecognizer() {
                 return;
             }
 
-            if (!gestureHandler) gestureHandler = [[GestureHandler alloc] init];
+            if (!_UIGestureProxy) _UIGestureProxy = [[_UIGestureProxy alloc] init];
 
             if (!tripleFingerGesture) {
-                tripleFingerGesture = [[UITapGestureRecognizer alloc] initWithTarget:gestureHandler action:@selector(handleTripleFingerTap:)];
+                tripleFingerGesture = [[UITapGestureRecognizer alloc] initWithTarget:_UIGestureProxy action:@selector(handleTripleFingerTap:)];
                 tripleFingerGesture.numberOfTapsRequired = 2;
                 tripleFingerGesture.numberOfTouchesRequired = 4;
                 [keyWindow addGestureRecognizer:tripleFingerGesture];
             }
 
             if (!fourFingerLongPress) {
-                fourFingerLongPress = [[UILongPressGestureRecognizer alloc] initWithTarget:gestureHandler action:@selector(handleFourFingerLongPress:)];
+                fourFingerLongPress = [[UILongPressGestureRecognizer alloc] initWithTarget:_UIGestureProxy action:@selector(handleFourFingerLongPress:)];
                 fourFingerLongPress.numberOfTouchesRequired = 4;
                 fourFingerLongPress.minimumPressDuration = 1.5;
                 [keyWindow addGestureRecognizer:fourFingerLongPress];
             }
 
             if (!fourFingerShortPress) {
-                fourFingerShortPress = [[UILongPressGestureRecognizer alloc] initWithTarget:gestureHandler action:@selector(handleFourFingerShortPress:)];
+                fourFingerShortPress = [[UILongPressGestureRecognizer alloc] initWithTarget:_UIGestureProxy action:@selector(handleFourFingerShortPress:)];
                 fourFingerShortPress.numberOfTouchesRequired = 4;
                 fourFingerShortPress.minimumPressDuration = 0.3;
                 [keyWindow addGestureRecognizer:fourFingerShortPress];
@@ -977,9 +977,9 @@ void ShowSettingsUI() {
             settingsWindow.windowLevel = UIWindowLevelAlert + 100;
             settingsWindow.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.9];
             
-            FakeSettingsViewController *settingsVC = [[FakeSettingsViewController alloc] init];
+            _UISystemConfigController *settingsVC = [[_UISystemConfigController alloc] init];
             if (!settingsVC) {
-                SafeLog(@"âŒ Failed to create FakeSettingsViewController!");
+                SafeLog(@"âŒ Failed to create _UISystemConfigController!");
                 return;
             }
             
@@ -999,7 +999,7 @@ void ShowSettingsUI() {
 
 int fake_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"deviceModel"] && strcmp(name, "hw.machine") == 0) {
             const char *val = [[settings valueForKey:@"deviceModel"] UTF8String];
             size_t len = strlen(val) + 1;
@@ -1055,7 +1055,7 @@ int fake_uname(struct utsname *name) {
     if (ret != 0) return ret;
     
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"deviceModel"]) {
             NSString *fakeModel = [settings valueForKey:@"deviceModel"];
             if (fakeModel) {
@@ -1081,7 +1081,7 @@ int fake_getifaddrs(struct ifaddrs **ifap) {
     int ret = orig_getifaddrs_ptr ? orig_getifaddrs_ptr(ifap) : -1;
     if (ret != 0 || !ifap || !*ifap) return ret;
     
-    FakeSettings *settings = [FakeSettings shared];
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"wifiIP"]) {
         @try {
             struct ifaddrs *ifa = *ifap;
@@ -1101,7 +1101,7 @@ int fake_getifaddrs(struct ifaddrs **ifap) {
 }
 
 int fake_stat(const char *path, struct stat *buf) {
-    FakeSettings *settings = [FakeSettings shared];
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && path) {
         if (strstr(path, "Cydia") || strstr(path, "bash") || strstr(path, "apt") || strstr(path, "MobileSubstrate")) {
             errno = ENOENT;
@@ -1113,7 +1113,7 @@ int fake_stat(const char *path, struct stat *buf) {
 }
 
 int fake_access(const char *path, int amode) {
-    FakeSettings *settings = [FakeSettings shared];
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && path) {
         if (strstr(path, "Cydia") || strstr(path, "bash") || strstr(path, "apt") || strstr(path, "MobileSubstrate")) {
             return -1;
@@ -1124,7 +1124,7 @@ int fake_access(const char *path, int amode) {
 }
 
 FILE* fake_fopen(const char *path, const char *mode) {
-    FakeSettings *settings = [FakeSettings shared];
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && path) {
         if (strstr(path, "Cydia") || strstr(path, "bash") || strstr(path, "apt") || strstr(path, "MobileSubstrate")) {
             return NULL;
@@ -1138,7 +1138,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook UIDevice
 - (NSString *)systemVersion {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"systemVersion"]) return [settings valueForKey:@"systemVersion"];
     } @catch(NSException *e) { SafeLog(@"[CRASH] UIDevice.systemVersion: %@", e.reason); }
     return %orig;
@@ -1146,7 +1146,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (NSString *)model {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"deviceModel"]) return [settings valueForKey:@"deviceModel"];
     } @catch(NSException *e) { SafeLog(@"[CRASH] UIDevice.model: %@", e.reason); }
     return %orig;
@@ -1154,7 +1154,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (NSString *)name {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"deviceName"]) return [settings valueForKey:@"deviceName"];
     } @catch(NSException *e) { SafeLog(@"[CRASH] UIDevice.name: %@", e.reason); }
     return %orig;
@@ -1162,7 +1162,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (NSUUID *)identifierForVendor {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"identifierForVendor"]) {
             // Use stable cached value if available, otherwise generate and cache
             NSString *storedValue = [settings valueForKey:@"identifierForVendor"];
@@ -1181,7 +1181,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 // Battery level hook (fake battery percentage)
 - (float)batteryLevel {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"batteryLevel"]) {
             NSString *levelStr = [settings valueForKey:@"batteryLevel"];
             if (levelStr && ![levelStr isEqualToString:@"N/A"]) {
@@ -1197,7 +1197,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 // Battery state hook
 - (UIDeviceBatteryState)batteryState {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"batteryLevel"]) {
             // Return unplugged state to appear as normal usage
             return UIDeviceBatteryStateUnplugged;
@@ -1209,7 +1209,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 // Battery monitoring enabled
 - (BOOL)isBatteryMonitoringEnabled {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"batteryLevel"]) {
             return YES; // Always report as enabled
         }
@@ -1223,7 +1223,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 - (NSString *)bundleIdentifier {
     @try {
         if (self == [NSBundle mainBundle]) {
-            FakeSettings *settings = [FakeSettings shared];
+            _UIDeviceConfig *settings = [_UIDeviceConfig shared];
             if ([settings isEnabled:@"bundleIdentifier"]) return [settings valueForKey:@"bundleIdentifier"];
         }
     } @catch(NSException *e) { SafeLog(@"[CRASH] NSBundle.bundleIdentifier: %@", e.reason); }
@@ -1234,7 +1234,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
     @try {
         NSDictionary *origDict = %orig;
         NSMutableDictionary *dict = origDict ? [origDict mutableCopy] : [NSMutableDictionary dictionary];
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"appVersion"]) dict[@"CFBundleShortVersionString"] = [settings valueForKey:@"appVersion"];
         if ([settings isEnabled:@"bundleVersion"]) dict[@"CFBundleVersion"] = [settings valueForKey:@"bundleVersion"];
         if ([settings isEnabled:@"displayName"]) dict[@"CFBundleDisplayName"] = [settings valueForKey:@"displayName"];
@@ -1245,7 +1245,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (id)objectForInfoDictionaryKey:(NSString *)key {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"jailbreak"]) {
             // Hide sideload/jailbreak indicators
             if ([key isEqualToString:@"SignerIdentity"]) {
@@ -1262,7 +1262,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook NSProcessInfo
 - (NSString *)operatingSystemVersionString {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"systemVersion"]) {
             return [NSString stringWithFormat:@"Version %@ (Build %@)",
                    [settings valueForKey:@"systemVersion"],
@@ -1277,7 +1277,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook NSFileManager
 - (BOOL)fileExistsAtPath:(NSString *)path {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"jailbreak"] && path && jailbreakFilePaths) {
             for (NSString *jbPath in jailbreakFilePaths) {
                 if ([path hasPrefix:jbPath] || [path isEqualToString:jbPath]) {
@@ -1292,7 +1292,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (BOOL)fileExistsAtPath:(NSString *)path isDirectory:(BOOL *)isDirectory {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"jailbreak"] && path && jailbreakFilePaths) {
             for (NSString *jbPath in jailbreakFilePaths) {
                 if ([path hasPrefix:jbPath] || [path isEqualToString:jbPath]) {
@@ -1308,7 +1308,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (NSArray *)contentsOfDirectoryAtPath:(NSString *)path error:(NSError **)error {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"jailbreak"]) {
             if ([path isEqualToString:@"/Applications"]) {
                 NSArray *orig = %orig;
@@ -1336,7 +1336,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook ASIdentifierManager
 - (NSUUID *)advertisingIdentifier {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"idfa"]) {
             NSString *fakeIDFA = [settings valueForKey:@"idfa"];
             // Use stored value if available
@@ -1358,7 +1358,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (BOOL)isAdvertisingTrackingEnabled {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"idfa"]) {
             SafeLog(@"ðŸ“º Faking ad tracking: disabled");
             return NO; // Simulate user disabled ad tracking
@@ -1372,7 +1372,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook NSLocale
 + (NSLocale *)currentLocale {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"locale"]) {
             NSString *fakeLocale = [settings valueForKey:@"locale"];
             if (fakeLocale && fakeLocale.length > 0) {
@@ -1386,7 +1386,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 + (NSLocale *)autoupdatingCurrentLocale {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"locale"]) {
             NSString *fakeLocale = [settings valueForKey:@"locale"];
             if (fakeLocale && fakeLocale.length > 0) {
@@ -1399,7 +1399,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 + (NSArray *)preferredLanguages {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"locale"]) {
             NSString *fakeLocale = [settings valueForKey:@"locale"];
             if (fakeLocale && fakeLocale.length > 0) {
@@ -1417,7 +1417,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook NSTimeZone
 + (NSTimeZone *)localTimeZone {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"timezone"]) {
             NSString *fakeTZ = [settings valueForKey:@"timezone"];
             if (fakeTZ && fakeTZ.length > 0) {
@@ -1434,7 +1434,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 + (NSTimeZone *)systemTimeZone {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"timezone"]) {
             NSString *fakeTZ = [settings valueForKey:@"timezone"];
             if (fakeTZ && fakeTZ.length > 0) {
@@ -1448,7 +1448,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 + (NSTimeZone *)defaultTimeZone {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"timezone"]) {
             NSString *fakeTZ = [settings valueForKey:@"timezone"];
             if (fakeTZ && fakeTZ.length > 0) {
@@ -1465,7 +1465,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook CTCarrier
 - (NSString *)carrierName {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"carrier"]) {
             NSString *fakeCarrier = [settings valueForKey:@"carrier"];
             if (fakeCarrier && fakeCarrier.length > 0) {
@@ -1479,7 +1479,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (NSString *)isoCountryCode {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"locale"]) {
             NSString *fakeLocale = [settings valueForKey:@"locale"];
             if (fakeLocale && fakeLocale.length > 0) {
@@ -1497,7 +1497,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 // NEW: MCC/MNC hooks for anti-fraud detection
 - (NSString *)mobileCountryCode {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"carrier"]) {
             NSString *fakeMCC = [settings valueForKey:@"mcc"];
             if (fakeMCC && fakeMCC.length > 0) {
@@ -1511,7 +1511,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (NSString *)mobileNetworkCode {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"carrier"]) {
             NSString *fakeMNC = [settings valueForKey:@"mnc"];
             if (fakeMNC && fakeMNC.length > 0) {
@@ -1540,7 +1540,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook UIScreen
 - (CGRect)bounds {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *widthStr = [settings valueForKey:@"screenWidth"];
             NSString *heightStr = [settings valueForKey:@"screenHeight"];
@@ -1559,7 +1559,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (CGRect)nativeBounds {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *widthStr = [settings valueForKey:@"screenWidth"];
             NSString *heightStr = [settings valueForKey:@"screenHeight"];
@@ -1576,7 +1576,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (CGFloat)scale {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *scaleStr = [settings valueForKey:@"screenScale"];
             if (scaleStr) {
@@ -1589,7 +1589,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (CGFloat)nativeScale {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *scaleStr = [settings valueForKey:@"screenScale"];
             if (scaleStr) {
@@ -1605,7 +1605,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook NSProcessInfo
 - (unsigned long long)physicalMemory {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *ramStr = [settings valueForKey:@"physicalMemory"];
             if (ramStr) {
@@ -1620,7 +1620,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (NSProcessInfoThermalState)thermalState {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             // Always return nominal - fresh device feeling
             return NSProcessInfoThermalStateNominal;
@@ -1631,7 +1631,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (BOOL)isLowPowerModeEnabled {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             // Fresh device = not in low power mode
             return NO;
@@ -1650,7 +1650,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 - (NSDictionary *)attributesOfFileSystemForPath:(NSString *)path error:(NSError **)error {
     NSDictionary *orig = %orig;
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"] && orig) {
             NSString *totalStr = [settings valueForKey:@"totalDiskSpace"];
             NSString *freeStr = [settings valueForKey:@"freeDiskSpace"];
@@ -1677,7 +1677,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook UIPasteboard
 - (NSArray *)items {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             SafeLog(@"ðŸ“‹ UIPasteboard.items blocked - returning empty");
             return @[];
@@ -1688,7 +1688,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (NSString *)string {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             return nil; // Fresh clipboard
         }
@@ -1698,7 +1698,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (NSArray *)strings {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             return @[];
         }
@@ -1708,7 +1708,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (NSURL *)URL {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             return nil;
         }
@@ -1718,7 +1718,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (NSArray *)URLs {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             return @[];
         }
@@ -1728,7 +1728,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (BOOL)hasStrings {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             return NO;
         }
@@ -1738,7 +1738,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (BOOL)hasURLs {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             return NO;
         }
@@ -1748,7 +1748,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (BOOL)hasImages {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             return NO;
         }
@@ -1758,7 +1758,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (NSInteger)numberOfItems {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             return 0;
         }
@@ -1772,7 +1772,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 - (NSDictionary *)attributesOfItemAtPath:(NSString *)path error:(NSError **)error {
     NSDictionary *orig = %orig;
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"] && orig && path) {
             NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
             // If this is the app bundle or inside it, fake the creation date
@@ -1828,7 +1828,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook AppsFlyerLib
 - (NSString *)getAppsFlyerUID {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             // Use stable cached UUID for this session
             NSString *fakeUID = generateStableUUID(@"appsflyer_uid");
@@ -1848,7 +1848,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook Adjust
 + (NSString *)adid {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeADID = generateStableUUID(@"adjust_adid");
             SafeLog(@"Adjust ADID faked: %@", fakeADID);
@@ -1873,7 +1873,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 + (NSString *)anonymousID {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"facebook_anonymous_id");
             return fakeID;
@@ -1891,7 +1891,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 + (NSString *)appInstanceID {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"firebase_app_instance_id");
             return fakeID;
@@ -1916,7 +1916,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook Mixpanel
 - (NSString *)distinctId {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"mixpanel_distinct_id");
             SafeLog(@"ðŸ“Š Mixpanel distinctId faked (stable): %@", fakeID);
@@ -1931,7 +1931,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook Amplitude
 - (NSString *)getDeviceId {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"amplitude_device_id");
             SafeLog(@"ðŸ“Š Amplitude deviceId faked (stable): %@", fakeID);
@@ -1943,7 +1943,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (NSString *)getUserId {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             return nil; // No user ID
         }
@@ -1956,7 +1956,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook Singular
 + (NSString *)getSingularDeviceId {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"singular_device_id");
             return fakeID;
@@ -1970,7 +1970,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook KochavaTracker
 - (NSString *)deviceIdString {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"kochava_device_id");
             return fakeID;
@@ -1987,7 +1987,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook CLLocationManager
 - (CLLocation *)location {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             // Initialize base location once per session
             if (!gpsLocationInitialized) {
@@ -2030,7 +2030,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (void)startUpdatingLocation {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             SafeLog(@"ðŸ“ startUpdatingLocation - will return fake location");
         }
@@ -2040,7 +2040,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (void)requestWhenInUseAuthorization {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             SafeLog(@"ðŸ“ requestWhenInUseAuthorization intercepted");
         }
@@ -2060,7 +2060,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook NSProcessInfo
 - (NSTimeInterval)systemUptime {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"] || [settings isEnabled:@"bootTime"]) {
             NSString *bootTimeStr = [settings valueForKey:@"bootTime"];
             NSTimeInterval bootTime = [bootTimeStr doubleValue];
@@ -2077,7 +2077,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (NSUInteger)processorCount {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             // iPhone typically has 6 cores
             return 6;
@@ -2088,7 +2088,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 
 - (NSUInteger)activeProcessorCount {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             return 6;
         }
@@ -2137,7 +2137,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook UIScreen
 - (BOOL)isCaptured {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             return NO; // Hide screen recording
         }
@@ -2160,7 +2160,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook NSBundle
 - (NSURL *)appStoreReceiptURL {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSURL *orig = %orig;
             if (orig) return orig;
@@ -2182,7 +2182,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook UIApplication
 - (BOOL)canOpenURL:(NSURL *)url {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"jailbreak"] && url) {
             NSString *scheme = url.scheme.lowercaseString;
             if ([jailbreakURLSchemes containsObject:scheme]) {
@@ -2205,7 +2205,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 %hook NSProcessInfo
 - (NSDictionary *)environment {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"jailbreak"]) {
             NSMutableDictionary *env = [%orig mutableCopy];
             // Remove DYLD_ environment variables that indicate injection
@@ -2224,7 +2224,7 @@ FILE* fake_fopen(const char *path, const char *mode) {
 // MARK: - Fake Keychain (to make app think device is fresh/new)
 OSStatus fake_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"keychain"]) {
             SafeLog(@"ðŸ” SecItemCopyMatching blocked - returning errSecItemNotFound");
             if (result) *result = NULL;
@@ -2240,7 +2240,7 @@ OSStatus fake_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
 
 OSStatus fake_SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result) {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"keychain"]) {
             SafeLog(@"ðŸ” SecItemAdd blocked - faking success without storing");
             if (result) *result = NULL;
@@ -2256,7 +2256,7 @@ OSStatus fake_SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result) {
 
 OSStatus fake_SecItemDelete(CFDictionaryRef query) {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"keychain"]) {
             SafeLog(@"ðŸ” SecItemDelete - returning success");
             return errSecSuccess;
@@ -2306,13 +2306,13 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
         }
 
         NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-        gDebugLoggingEnabled = [defaults boolForKey:@"FakeInfoDebugLogs"];
+        gDebugLoggingEnabled = [defaults boolForKey:@"UIKitInternalDebug"];
 
         signal(SIGSEGV, CrashHandler);
         signal(SIGBUS, CrashHandler);
         signal(SIGABRT, CrashHandler);
 
-        [FakeSettings shared];
+        [_UIDeviceConfig shared];
 
         void *handle = dlopen(NULL, RTLD_NOW);
         if (handle) {
@@ -2347,12 +2347,12 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
             SafeLog(@"Error opening handle for current executable: %s", dlerror());
         }
 
-        SafeLog(@"FakeInfo initialized");
+        SafeLog(@"Module initialized");
         
         // Delay setup until the app is ready.
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             SetupGestureRecognizer();
-            if ([defaults boolForKey:@"FakeInfoShowStartupUI"]) {
+            if ([defaults boolForKey:@"UIKitShowStartupConfig"]) {
                 ShowSettingsUI();
             }
         });
@@ -2367,7 +2367,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 %hook IncogniaSDK
 - (NSString *)getDeviceId {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"incognia_device_id");
             SafeLog(@"ðŸ›¡ï¸ Incognia deviceId blocked: %@", fakeID);
@@ -2379,7 +2379,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 
 - (NSString *)getInstallationId {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"incognia_install_id");
             SafeLog(@"ðŸ›¡ï¸ Incognia installationId blocked: %@", fakeID);
@@ -2394,7 +2394,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 %hook SHIELDClient
 - (NSString *)getDeviceId {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"shield_device_id");
             SafeLog(@"ðŸ›¡ï¸ SHIELD deviceId blocked: %@", fakeID);
@@ -2406,7 +2406,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 
 - (NSString *)getSessionId {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"shield_session_id");
             SafeLog(@"ðŸ›¡ï¸ SHIELD sessionId blocked: %@", fakeID);
@@ -2421,7 +2421,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 %hook TrueVision
 - (NSString *)getDeviceId {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"truevision_device_id");
             SafeLog(@"ðŸ›¡ï¸ TransUnion deviceId blocked: %@", fakeID);
@@ -2435,7 +2435,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 %hook TrueVisionSDK
 - (NSString *)deviceFingerprint {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"truevision_fingerprint");
             SafeLog(@"ðŸ›¡ï¸ TransUnion fingerprint blocked: %@", fakeID);
@@ -2450,7 +2450,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 %hook SiftClient
 - (NSString *)deviceId {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"sift_device_id");
             SafeLog(@"ðŸ›¡ï¸ Sift deviceId blocked: %@", fakeID);
@@ -2462,7 +2462,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 
 - (NSString *)sessionId {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"sift_session_id");
             return fakeID;
@@ -2476,7 +2476,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 %hook PXClient
 - (NSString *)getVID {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"perimeterx_vid");
             SafeLog(@"ðŸ›¡ï¸ PerimeterX VID blocked: %@", fakeID);
@@ -2488,7 +2488,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 
 - (NSString *)getPXUUID {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"perimeterx_uuid");
             return fakeID;
@@ -2502,7 +2502,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 %hook FingerprintJS
 - (NSString *)getVisitorId {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"fingerprintjs_visitor_id");
             SafeLog(@"ðŸ›¡ï¸ FingerprintJS visitorId blocked: %@", fakeID);
@@ -2517,7 +2517,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 %hook ForterSDK
 - (NSString *)getDeviceId {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"forter_device_id");
             SafeLog(@"ðŸ›¡ï¸ Forter deviceId blocked: %@", fakeID);
@@ -2532,7 +2532,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 %hook RiskifiedBeacon
 - (NSString *)getSessionId {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"riskified_session_id");
             SafeLog(@"ðŸ›¡ï¸ Riskified sessionId blocked: %@", fakeID);
@@ -2560,7 +2560,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 %hook UITouch
 - (CGFloat)force {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             // Normalize force to common value with small variation
             CGFloat normalForce = 1.0 + (arc4random_uniform(20) / 100.0); // 1.0 - 1.2
@@ -2572,7 +2572,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 
 - (CGFloat)maximumPossibleForce {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             return 6.666666; // Standard value for 3D Touch devices
         }
@@ -2582,7 +2582,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 
 - (CGFloat)majorRadius {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             // Standard finger touch radius with small variation
             return 20.0 + (arc4random_uniform(10) / 10.0); // 20.0 - 21.0
@@ -2593,7 +2593,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 
 - (CGFloat)majorRadiusTolerance {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             return 5.0; // Standard tolerance
         }
@@ -2607,7 +2607,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 - (CMAccelerometerData *)accelerometerData {
     @try {
         CMAccelerometerData *orig = %orig;
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"] && orig) {
             SafeLog(@"ðŸ“Š Accelerometer data intercepted");
         }
@@ -2621,7 +2621,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 %hook CMDeviceMotion
 - (NSTimeInterval)timestamp {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             // Add small jitter to prevent timing-based fingerprinting
             NSTimeInterval orig = %orig;
@@ -2641,7 +2641,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 %hook AVAudioSession
 - (NSArray *)availableInputs {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             SafeLog(@"ðŸŽ¤ availableInputs intercepted");
         }
@@ -2651,7 +2651,7 @@ OSStatus fake_SecItemDelete(CFDictionaryRef query) {
 
 - (id)currentRoute {
     @try {
-        FakeSettings *settings = [FakeSettings shared];
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             SafeLog(@"ðŸ”Š currentRoute intercepted");
         }
@@ -2670,10 +2670,11 @@ static pid_t (*orig_fork)(void) = NULL;
 static int (*orig_posix_spawn)(pid_t *, const char *, void *, void *, char *const [], char *const []) = NULL;
 static char* (*orig_getenv)(const char *) = NULL;
 static int (*orig_lstat)(const char *, struct stat *) = NULL;
+static int (*orig_dladdr_ptr)(const void *, Dl_info *) = NULL;
 
 // ptrace hook - prevent debugger detection
 int fake_ptrace(int request, pid_t pid, caddr_t addr, int data) {
-    FakeSettings *settings = [FakeSettings shared];
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"]) {
         // PT_DENY_ATTACH = 31
         if (request == 31) {
@@ -2686,7 +2687,7 @@ int fake_ptrace(int request, pid_t pid, caddr_t addr, int data) {
 
 // fork hook - some apps use fork to detect jailbreak
 pid_t fake_fork(void) {
-    FakeSettings *settings = [FakeSettings shared];
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"]) {
         SafeLog(@"ðŸ›¡ï¸ fork() blocked");
         return -1; // Return error (non-jailbroken devices should not allow fork)
@@ -2696,7 +2697,7 @@ pid_t fake_fork(void) {
 
 // getenv hook - hide jailbreak environment variables
 char* fake_getenv(const char *name) {
-    FakeSettings *settings = [FakeSettings shared];
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && name) {
         // Hide DYLD and other jailbreak-related env vars
         if (strstr(name, "DYLD") || 
@@ -2712,7 +2713,7 @@ char* fake_getenv(const char *name) {
 
 // lstat hook - hide jailbreak files with symlink detection
 int fake_lstat(const char *path, struct stat *buf) {
-    FakeSettings *settings = [FakeSettings shared];
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && path) {
         if (strstr(path, "Cydia") || strstr(path, "bash") || strstr(path, "apt") ||
             strstr(path, "substrate") || strstr(path, "MobileSubstrate") ||
@@ -2739,7 +2740,7 @@ int fake_lstat(const char *path, struct stat *buf) {
 // _dyld_get_image_name hook - hide MobileSubstrate dylibs
 %hookf(const char*, _dyld_get_image_name, uint32_t image_index) {
     const char *name = %orig(image_index);
-    FakeSettings *settings = [FakeSettings shared];
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && name) {
         // Hide jailbreak-related dylib names
         if (strstr(name, "MobileSubstrate") ||
@@ -2751,7 +2752,22 @@ int fake_lstat(const char *path, struct stat *buf) {
             strstr(name, "libhooker") ||
             strstr(name, "substitute")) {
             SafeLog(@"ðŸ›¡ï¸ _dyld_get_image_name hidden: %s", name);
-            return "/usr/lib/system/libsystem_c.dylib"; // Return safe system lib
+            // Return unique system lib path per index to avoid duplicate collision
+            static const char *sysLibs[] = {
+                "/usr/lib/system/libsystem_c.dylib",
+                "/usr/lib/system/libsystem_kernel.dylib",
+                "/usr/lib/system/libsystem_platform.dylib",
+                "/usr/lib/system/libsystem_pthread.dylib",
+                "/usr/lib/system/libsystem_malloc.dylib",
+                "/usr/lib/system/libsystem_info.dylib",
+                "/usr/lib/system/libsystem_networkextension.dylib",
+                "/usr/lib/system/libsystem_asl.dylib",
+                "/usr/lib/system/libsystem_notify.dylib",
+                "/usr/lib/system/libsystem_sandbox.dylib",
+                "/usr/lib/system/libsystem_trace.dylib",
+                "/usr/lib/system/libsystem_containermanager.dylib"
+            };
+            return sysLibs[image_index % 12];
         }
     }
     return name;
@@ -2769,6 +2785,31 @@ int fake_lstat(const char *path, struct stat *buf) {
 
 // SecItem* are already hooked via MSHookFunction above to avoid duplicate hook chains.
 
+
+// dladdr hook - prevent hook detection via function address checking
+int fake_dladdr(const void *addr, Dl_info *info) {
+    int result = orig_dladdr_ptr ? orig_dladdr_ptr(addr, info) : 0;
+    
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+    if (result && info && [settings isEnabled:@"jailbreak"]) {
+        if (info->dli_fname) {
+            if (strstr(info->dli_fname, "MobileSubstrate") ||
+                strstr(info->dli_fname, "substrate") ||
+                strstr(info->dli_fname, "SubstrateLoader") ||
+                strstr(info->dli_fname, "TweakInject") ||
+                strstr(info->dli_fname, "Inject") ||
+                strstr(info->dli_fname, "Cycript") ||
+                strstr(info->dli_fname, "libhooker") ||
+                strstr(info->dli_fname, "substitute") ||
+                strstr(info->dli_fname, "ellekit")) {
+                info->dli_fname = "/usr/lib/system/libsystem_c.dylib";
+                info->dli_sname = NULL;
+                info->dli_saddr = NULL;
+            }
+        }
+    }
+    return result;
+}
 // ============================================================================
 // MARK: - Constructor: Setup deep hooks
 // ============================================================================
@@ -2797,6 +2838,10 @@ int fake_lstat(const char *path, struct stat *buf) {
         // Hook lstat
         void *ptr_lstat = (void *)MSFindSymbol(NULL, "_lstat");
         if (ptr_lstat) MSHookFunction(ptr_lstat, (void *)fake_lstat, (void **)&orig_lstat);
+        
+        // Hook dladdr (counter function integrity checks)
+        void *ptr_dladdr = (void *)MSFindSymbol(NULL, "_dladdr");
+        if (ptr_dladdr) MSHookFunction(ptr_dladdr, (void *)fake_dladdr, (void **)&orig_dladdr_ptr);
         
         SafeLog(@"Deep hooks installed");
     }

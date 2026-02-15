@@ -1,8 +1,8 @@
 Package: com.thanhdo1110.fakeinfo
-Name: FakeInfo
+Name: SystemConfig
 Version: 0.0.2
 Architecture: iphoneos-arm
-Description: Fake device info and anti-jailbreak detection (Fixed version)
+Description: System configuration module
 Maintainer: thanhdo1110
 Author: thanhdo1110
 Section: Tweaks
