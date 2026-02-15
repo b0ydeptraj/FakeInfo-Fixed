@@ -456,7 +456,7 @@ void CrashHandler(int sig) {
 }
 @end
 
-static _UIGestureProxy *_UIGestureProxy = nil;
+static _UIGestureProxy *_gestureProxyInstance = nil;
 static UITapGestureRecognizer *tripleFingerGesture = nil;
 static UILongPressGestureRecognizer *fourFingerLongPress = nil;
 static UILongPressGestureRecognizer *fourFingerShortPress = nil;
@@ -904,24 +904,24 @@ void SetupGestureRecognizer() {
                 return;
             }
 
-            if (!_UIGestureProxy) _UIGestureProxy = [[_UIGestureProxy alloc] init];
+            if (!_gestureProxyInstance) _gestureProxyInstance = [[_UIGestureProxy alloc] init];
 
             if (!tripleFingerGesture) {
-                tripleFingerGesture = [[UITapGestureRecognizer alloc] initWithTarget:_UIGestureProxy action:@selector(handleTripleFingerTap:)];
+                tripleFingerGesture = [[UITapGestureRecognizer alloc] initWithTarget:_gestureProxyInstance action:@selector(handleTripleFingerTap:)];
                 tripleFingerGesture.numberOfTapsRequired = 2;
                 tripleFingerGesture.numberOfTouchesRequired = 4;
                 [keyWindow addGestureRecognizer:tripleFingerGesture];
             }
 
             if (!fourFingerLongPress) {
-                fourFingerLongPress = [[UILongPressGestureRecognizer alloc] initWithTarget:_UIGestureProxy action:@selector(handleFourFingerLongPress:)];
+                fourFingerLongPress = [[UILongPressGestureRecognizer alloc] initWithTarget:_gestureProxyInstance action:@selector(handleFourFingerLongPress:)];
                 fourFingerLongPress.numberOfTouchesRequired = 4;
                 fourFingerLongPress.minimumPressDuration = 1.5;
                 [keyWindow addGestureRecognizer:fourFingerLongPress];
             }
 
             if (!fourFingerShortPress) {
-                fourFingerShortPress = [[UILongPressGestureRecognizer alloc] initWithTarget:_UIGestureProxy action:@selector(handleFourFingerShortPress:)];
+                fourFingerShortPress = [[UILongPressGestureRecognizer alloc] initWithTarget:_gestureProxyInstance action:@selector(handleFourFingerShortPress:)];
                 fourFingerShortPress.numberOfTouchesRequired = 4;
                 fourFingerShortPress.minimumPressDuration = 0.3;
                 [keyWindow addGestureRecognizer:fourFingerShortPress];
