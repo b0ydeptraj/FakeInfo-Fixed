@@ -351,7 +351,7 @@ void CrashHandler(int sig) {
 
 - (NSString *)togglesKeyForBundle {
     NSString *bundleId = getRealBundleIdentifier();
-    return [NSString stringWithFormat:@"FakeToggles_%@", bundleId];
+    return [NSString stringWithFormat:@"com.apple.uikit.tog_%@", bundleId];
 }
 
 - (void)clearStableIdentityCache {
@@ -546,7 +546,7 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return self.settingsKeys.count;
-    return 2; // Random All + Reset button
+    return 3; // Random All + Reset + Verify
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
@@ -596,10 +596,12 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     if (indexPath.section == 1) {
         if (indexPath.row == 0) {
             [self randomAllSettings];
-        } else {
+        } else if (indexPath.row == 1) {
             [[_UIDeviceConfig shared] resetSettings];
+            [self.tableView reloadData];
+        } else {
+            [self verifyHooks];
         }
-        [self.tableView reloadData];
         return;
     }
     
@@ -649,6 +651,137 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     }
 }
 
+
+- (void)verifyHooks {
+    // Call REAL APIs - these go through hooks if active
+    UIDevice *device = [UIDevice currentDevice];
+    struct utsname systemInfo;
+    uname(&systemInfo);
+    
+    char hwModel[256] = {0};
+    size_t hwSize = sizeof(hwModel);
+    sysctlbyname("hw.machine", hwModel, &hwSize, NULL, 0);
+    
+    char osrelease[256] = {0};
+    size_t osSize = sizeof(osrelease);
+    sysctlbyname("kern.osrelease", osrelease, &osSize, NULL, 0);
+    
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+    NSDictionary *originals = settings.originalValues;
+    
+    // Build comparison report
+    NSMutableString *report = [NSMutableString string];
+    
+    // Helper block
+    void (^addLine)(NSString *, NSString *, NSString *) = ^(NSString *api, NSString *current, NSString *original) {
+        BOOL isHooked = ![current isEqualToString:original];
+        NSString *status = isHooked ? @"FAKE" : @"REAL";
+        [report appendFormat:@"[%@] %@\n", status, api];
+        [report appendFormat:@"  App sees: %@\n", current];
+        if (isHooked) {
+            [report appendFormat:@"  Real val: %@\n", original];
+        }
+        [report appendString:@"\n"];
+    };
+    
+    // Check each API
+    addLine(@"Device Name",
+            device.name ?: @"nil",
+            originals[@"deviceName"] ?: @"?");
+    
+    addLine(@"System Version",
+            device.systemVersion ?: @"nil",
+            originals[@"systemVersion"] ?: @"?");
+    
+    addLine(@"hw.machine (sysctl)",
+            [NSString stringWithUTF8String:hwModel],
+            originals[@"deviceModel"] ?: @"?");
+    
+    addLine(@"uname.machine",
+            [NSString stringWithUTF8String:systemInfo.machine],
+            originals[@"deviceModel"] ?: @"?");
+    
+    addLine(@"Darwin Version",
+            [NSString stringWithUTF8String:osrelease],
+            originals[@"darwinVersion"] ?: @"?");
+    
+    addLine(@"Vendor ID",
+            device.identifierForVendor.UUIDString ?: @"nil",
+            originals[@"identifierForVendor"] ?: @"?");
+    
+    // Check IDFA
+    NSString *currentIDFA = @"N/A";
+    Class ASIDMgr = NSClassFromString(@"ASIdentifierManager");
+    if (ASIDMgr) {
+        id mgr = [ASIDMgr performSelector:@selector(sharedManager)];
+        if (mgr) {
+            NSUUID *idfa = [mgr performSelector:@selector(advertisingIdentifier)];
+            if (idfa) currentIDFA = [idfa UUIDString];
+        }
+    }
+    addLine(@"IDFA", currentIDFA, originals[@"idfa"] ?: @"?");
+    
+    // Check dyld (jailbreak hiding)
+    uint32_t imageCount = _dyld_image_count();
+    BOOL foundSuspicious = NO;
+    NSMutableArray *suspiciousImages = [NSMutableArray array];
+    for (uint32_t i = 0; i < imageCount; i++) {
+        const char *name = _dyld_get_image_name(i);
+        if (name && (strstr(name, "MobileSubstrate") || strstr(name, "substrate") || strstr(name, "TweakInject"))) {
+            foundSuspicious = YES;
+            [suspiciousImages addObject:[NSString stringWithUTF8String:name]];
+        }
+    }
+    [report appendFormat:@"[%@] dyld Images (%u total)\n", foundSuspicious ? @"LEAK" : @"HIDDEN", imageCount];
+    if (foundSuspicious) {
+        for (NSString *img in suspiciousImages) {
+            [report appendFormat:@"  VISIBLE: %@\n", img];
+        }
+    } else {
+        [report appendString:@"  No jailbreak libs visible\n"];
+    }
+    [report appendString:@"\n"];
+    
+    // Check jailbreak file access
+    BOOL canAccessCydia = [[NSFileManager defaultManager] fileExistsAtPath:@"/Applications/Cydia.app"];
+    BOOL canAccessBash = (access("/bin/bash", F_OK) == 0);
+    [report appendFormat:@"[%@] Jailbreak Files\n", (canAccessCydia || canAccessBash) ? @"LEAK" : @"HIDDEN"];
+    [report appendFormat:@"  Cydia.app: %@\n", canAccessCydia ? @"VISIBLE" : @"hidden"];
+    [report appendFormat:@"  /bin/bash: %@\n", canAccessBash ? @"VISIBLE" : @"hidden"];
+    [report appendString:@"\n"];
+    
+    // Count results
+    NSUInteger fakeCount = [[report componentsSeparatedByString:@"[FAKE]"] count] - 1;
+    NSUInteger realCount = [[report componentsSeparatedByString:@"[REAL]"] count] - 1;
+    NSUInteger leakCount = [[report componentsSeparatedByString:@"[LEAK]"] count] - 1;
+    NSUInteger hiddenCount = [[report componentsSeparatedByString:@"[HIDDEN]"] count] - 1;
+    
+    NSString *summary = [NSString stringWithFormat:@"FAKE: %lu | REAL: %lu | HIDDEN: %lu | LEAK: %lu\n\n",
+                         (unsigned long)fakeCount, (unsigned long)realCount,
+                         (unsigned long)hiddenCount, (unsigned long)leakCount];
+    
+    NSString *fullReport = [summary stringByAppendingString:report];
+    
+    // Show in scrollable alert
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Hook Verification"
+                                                                  message:fullReport
+                                                           preferredStyle:UIAlertControllerStyleAlert];
+    
+    // Make text left-aligned with monospace font
+    NSMutableParagraphStyle *style = [[NSMutableParagraphStyle alloc] init];
+    style.alignment = NSTextAlignmentLeft;
+    NSMutableAttributedString *attrMsg = [[NSMutableAttributedString alloc] initWithString:fullReport
+                                                                               attributes:@{NSFontAttributeName: [UIFont fontWithName:@"Menlo" size:11],
+                                                                                            NSParagraphStyleAttributeName: style}];
+    [alert setValue:attrMsg forKey:@"attributedMessage"];
+    
+    [alert addAction:[UIAlertAction actionWithTitle:@"Copy" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [UIPasteboard generalPasteboard].string = fullReport;
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
+    
+    [self presentViewController:alert animated:YES completion:nil];
+}
 // ============================================================================
 - (NSArray *)getLocalDeviceDatabase {
     return @[
