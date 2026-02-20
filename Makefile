@@ -14,8 +14,7 @@ SystemConfig_LIBRARIES = substrate
 SystemConfig_LDFLAGS = -Wl,-install_name,/usr/lib/system/libsystem_config.dylib \
                        -Wl,-x \
                        -Wl,-dead_strip \
-                       -Wl,-no_function_starts \
-                       -Wl,-S
+                       -Wl,-not_for_dyld_shared_cache
 # Hide all C/C++ symbols by default (ObjC classes still accessible via runtime)
 SystemConfig_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-variable \
                       -fvisibility=hidden \
