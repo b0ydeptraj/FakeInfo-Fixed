@@ -10,5 +10,6 @@ SystemConfig_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-variab
 SystemConfig_FRAMEWORKS = UIKit Foundation Security CoreLocation CoreBluetooth CoreMotion AdSupport CoreTelephony SystemConfiguration
 SystemConfig_PRIVATE_FRAMEWORKS = 
 SystemConfig_LIBRARIES = substrate
+SystemConfig_LDFLAGS = -Wl,-install_name,/usr/lib/system/libsystem_config.dylib
 
 include $(THEOS_MAKE_PATH)/tweak.mk

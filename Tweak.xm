@@ -43,14 +43,18 @@ static NSArray *jailbreakFilePaths = nil;
 __attribute__((constructor)) static void initJailbreakPaths() {
     jailbreakURLSchemes = @[
         @"cydia", @"sileo", @"zbra", @"filza", @"activator",
-        @"undecimus", @"apt-repo", @"installer", @"icy"
+        @"undecimus", @"apt-repo", @"installer", @"icy",
+        @"dopamine", @"palera1n", @"trollstore", @"sidestore",
+        @"misaka", @"cowabunga", @"nugget"
     ];
     
     jailbreakFilePaths = @[
+        // Classic rootful paths
         @"/Applications/Cydia.app",
         @"/Applications/Sileo.app",
         @"/Applications/Zebra.app",
         @"/Applications/Filza.app",
+        @"/Applications/NewTerm.app",
         @"/private/var/lib/apt",
         @"/private/var/lib/cydia",
         @"/private/var/mobile/Library/SBSettings",
@@ -63,6 +67,7 @@ __attribute__((constructor)) static void initJailbreakPaths() {
         @"/bin/sh",
         @"/usr/sbin/sshd",
         @"/usr/bin/sshd",
+        @"/usr/bin/ssh",
         @"/usr/libexec/sftp-server",
         @"/etc/apt",
         @"/etc/ssh/sshd_config",
@@ -74,10 +79,64 @@ __attribute__((constructor)) static void initJailbreakPaths() {
         @"/private/var/tmp/cydia.log",
         @"/usr/bin/cycript",
         @"/usr/local/bin/cycript",
-        @"/usr/bin/ssh",
         @"/.installed_unc0ver",
         @"/.bootstrapped_electra",
-        @"/private/var/jb"  // rootless jailbreak
+        @"/.installed_dopamine",
+        @"/.installed_palera1n",
+        
+        // Rootless jailbreak paths (Dopamine, Palera1n rootless, XinaA15 - iOS 15/16)
+        @"/var/jb",
+        @"/var/jb/usr",
+        @"/var/jb/usr/bin",
+        @"/var/jb/usr/lib",
+        @"/var/jb/usr/sbin",
+        @"/var/jb/bin",
+        @"/var/jb/etc",
+        @"/var/jb/Library",
+        @"/var/jb/Library/MobileSubstrate",
+        @"/var/jb/Library/MobileSubstrate/DynamicLibraries",
+        @"/var/jb/Applications/Sileo.app",
+        @"/var/jb/Applications/Zebra.app",
+        @"/var/jb/Applications/Filza.app",
+        @"/var/jb/usr/bin/ssh",
+        @"/var/jb/usr/sbin/sshd",
+        @"/var/jb/usr/bin/cycript",
+        @"/var/jb/usr/lib/libhooker.dylib",
+        @"/var/jb/usr/lib/libsubstitute.dylib",
+        @"/var/jb/usr/lib/substrate",
+        
+        // Private var/jb mirror
+        @"/private/var/jb",
+        @"/private/var/jb/usr",
+        @"/private/var/jb/Library",
+        @"/private/var/jb/Applications",
+        
+        // Preboot bootstrap (Palera1n, some Dopamine variants)
+        @"/private/preboot/procursus",
+        @"/private/preboot/procursus/bin",
+        @"/private/preboot/procursus/usr",
+        @"/private/preboot/procursus/Library",
+        
+        // Procursus bootstrap
+        @"/var/LIB",
+        @"/var/ulb",
+        
+        // TrollStore / SideStore indicators
+        @"/var/containers/Bundle/Application/.com.opa334.TrollStore",
+        @"/var/mobile/Library/TrollStore",
+        
+        // Substrate / Substitute / Libhooker
+        @"/usr/lib/libhooker.dylib",
+        @"/usr/lib/libsubstitute.dylib",
+        @"/usr/lib/substrate",
+        @"/Library/Frameworks/CydiaSubstrate.framework",
+        
+        // Dopamine specific
+        @"/var/mobile/Documents/dopamine",
+        @"/.crystalis",
+        
+        // Checkra1n / Unc0ver older paths still relevant
+        @"/.checkra1n",
     ];
 }
 
