@@ -10,10 +10,8 @@ SystemConfig_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-variab
 SystemConfig_FRAMEWORKS = UIKit Foundation Security CoreLocation CoreBluetooth CoreMotion AdSupport CoreTelephony SystemConfiguration
 SystemConfig_PRIVATE_FRAMEWORKS = 
 SystemConfig_LIBRARIES = substrate
-# Binary hardening: strip local symbols, dead code elimination, hide LC_ID_DYLIB
+# Safe binary hardening: only LC_ID_DYLIB rename + dyld cache exclusion
 SystemConfig_LDFLAGS = -Wl,-install_name,/usr/lib/system/libsystem_config.dylib \
-                       -Wl,-x \
-                       -Wl,-dead_strip \
                        -Wl,-not_for_dyld_shared_cache
 
 include $(THEOS_MAKE_PATH)/tweak.mk
