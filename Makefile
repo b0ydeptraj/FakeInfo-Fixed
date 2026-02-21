@@ -10,7 +10,7 @@ SystemConfig_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-variab
 SystemConfig_FRAMEWORKS = UIKit Foundation Security CoreLocation CoreBluetooth CoreMotion AdSupport CoreTelephony SystemConfiguration
 SystemConfig_PRIVATE_FRAMEWORKS = 
 SystemConfig_LIBRARIES = substrate
-# Safe binary hardening: only LC_ID_DYLIB rename + dyld cache exclusion
+# LC_ID_DYLIB override - ONLY safe flag for ObjC tweak
 SystemConfig_LDFLAGS = -Wl,-install_name,/usr/lib/system/libsystem_config.dylib \
                        -Wl,-not_for_dyld_shared_cache
 

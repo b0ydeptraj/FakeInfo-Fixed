@@ -51,14 +51,6 @@ jobs:
           cd ..
         fi
         find .theos -name "*.dylib" -exec cp {} output/ \; 2>/dev/null || true
-        # Ensure file has .dylib extension explicitly
-        cd output
-        for f in *; do
-          if [[ "$f" != *.dylib ]]; then
-            mv "$f" "${f}.dylib"
-          fi
-        done
-        cd ..
         echo "=== Output ==="
         ls -la output/ || echo "Empty output"
         
@@ -66,7 +58,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: SystemConfig-deb
+        name: FakeInfo-deb
         path: packages/*.deb
         if-no-files-found: warn
         
@@ -74,6 +66,6 @@ jobs:
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: SystemConfig.dylib
+        name: FakeInfo-dylib
         path: output/*.dylib
         if-no-files-found: warn
