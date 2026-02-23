@@ -369,33 +369,27 @@ void CrashHandler(int sig) {
         bootTimeStr = [NSString stringWithFormat:@"%ld", (long)boottime.tv_sec];
     }
 
-    // Auto-generate random baseline IP and GPS so default config is never identical
+    // Auto-generate random baseline IP (RFC1918 ranges)
     NSArray *ipPrefixes = @[@"192.168.1", @"192.168.0", @"10.0.0", @"10.0.1", @"172.16.0"];
     NSString *baselineIP = [NSString stringWithFormat:@"%@.%d",
                             ipPrefixes[arc4random_uniform((uint32_t)ipPrefixes.count)],
                             (int)(arc4random_uniform(200) + 2)];
 
-    // World city GPS pool - realistic and diverse
-    NSArray *gpsPool = @[
-        @[@40.7128, @-74.0060],   // New York
-        @[@34.0522, @-118.2437],  // Los Angeles
-        @[@41.8781, @-87.6298],   // Chicago
-        @[@51.5072, @-0.1276],    // London
-        @[@48.8566, @2.3522],     // Paris
-        @[@52.5200, @13.4050],    // Berlin
-        @[@35.6762, @139.6503],   // Tokyo
-        @[@37.5665, @126.9780],   // Seoul
-        @[@31.2304, @121.4737],   // Shanghai
-        @[@-33.8688, @151.2093],  // Sydney
-        @[@-23.5505, @-46.6333],  // São Paulo
-        @[@55.7558, @37.6173],    // Moscow
-        @[@19.0760, @72.8777],    // Mumbai
-        @[@1.3521, @103.8198],    // Singapore
-        @[@25.2048, @55.2708],    // Dubai
-    ];
-    NSArray *gpsEntry = gpsPool[arc4random_uniform((uint32_t)gpsPool.count)];
-    NSString *baselineLat = [NSString stringWithFormat:@"%.6f", [gpsEntry[0] doubleValue]];
-    NSString *baselineLon = [NSString stringWithFormat:@"%.6f", [gpsEntry[1] doubleValue]];
+    // World city GPS pool using C arrays (safe at init time, no NSNumber boxing)
+    static const double kGpsLats[] = {
+        40.7128,  34.0522,  41.8781,  51.5072,  48.8566,
+        52.5200,  35.6762,  37.5665,  31.2304, -33.8688,
+       -23.5505,  55.7558,  19.0760,   1.3521,  25.2048
+    };
+    static const double kGpsLons[] = {
+       -74.0060, -118.2437, -87.6298,  -0.1276,   2.3522,
+        13.4050,  139.6503, 126.9780, 121.4737, 151.2093,
+       -46.6333,  37.6173,  72.8777, 103.8198,  55.2708
+    };
+    static const int kGpsCount = 15;
+    int gpsIdx = (int)arc4random_uniform(kGpsCount);
+    NSString *baselineLat = [NSString stringWithFormat:@"%.6f", kGpsLats[gpsIdx]];
+    NSString *baselineLon = [NSString stringWithFormat:@"%.6f", kGpsLons[gpsIdx]];
 
     self.baselineConfig = @{
         @"systemVersion": device.systemVersion ?: @"Unknown",
