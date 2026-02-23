@@ -1,8 +1,8 @@
 Package: com.thanhdo1110.fakeinfo
 Name: SystemConfig
-Version: 0.0.2
-Architecture: iphoneos-arm
-Description: System configuration module
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: System configuration module for device info spoofing
 Maintainer: thanhdo1110
 Author: thanhdo1110
 Section: Tweaks

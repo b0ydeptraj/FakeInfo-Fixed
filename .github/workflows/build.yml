@@ -1,4 +1,4 @@
-name: Build iOS Tweak
+name: Build iOS Tweak (arm64)
 
 on:
   push:
@@ -8,64 +8,74 @@ on:
 jobs:
   build:
     runs-on: macos-latest
-    
+
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-      
+
     - name: Setup Theos
       uses: Randomblock1/theos-action@v1
-      
+
     - name: Build Package
       run: |
-        # theos-action sets THEOS in env automatically
-        echo "THEOS path: $THEOS"
-        ls -la $THEOS/ || echo "THEOS not found, trying default"
-        
-        # Fallback if THEOS not set
         if [ -z "$THEOS" ]; then
           export THEOS=$HOME/theos
         fi
-        
-        echo "Final THEOS: $THEOS"
+        echo "THEOS: $THEOS"
         make package FINALPACKAGE=1
-        
-    - name: List Output
+
+    - name: Verify Architecture (arm64)
       if: always()
       run: |
-        echo "=== Packages ==="
-        ls -la packages/ || echo "No packages"
-        echo "=== .theos ===" 
-        ls -la .theos/ || echo "No .theos"
-        find . -name "*.dylib" 2>/dev/null || echo "No dylib found"
-        
+        echo "=== Finding dylib ==="
+        find . -name "*.dylib" 2>/dev/null
+
+        echo ""
+        echo "=== Architecture check (must be arm64) ==="
+        find . -name "*.dylib" -exec lipo -info {} \;
+
+        echo ""
+        echo "=== Mach-O type check ==="
+        find . -name "*.dylib" -exec file {} \;
+
+        echo ""
+        echo "=== DEB control check ==="
+        if ls packages/*.deb 1>/dev/null 2>&1; then
+          cd /tmp && mkdir debcheck && cd debcheck
+          cp $GITHUB_WORKSPACE/packages/*.deb .
+          ar -x *.deb
+          tar -xf control.tar.* 2>/dev/null || tar -xzf control.tar.gz 2>/dev/null || true
+          cat control || echo "Cannot read control"
+        fi
+
     - name: Extract dylib from DEB
       if: always()
       run: |
         mkdir -p output
-        if ls packages/*.deb 1> /dev/null 2>&1; then
+        if ls packages/*.deb 1>/dev/null 2>&1; then
           cd packages
           ar -x *.deb 2>/dev/null || true
           tar -xf data.tar.* 2>/dev/null || true
           find . -name "*.dylib" -exec cp {} ../output/ \;
           cd ..
         fi
+        # Also grab from .theos build dir
         find .theos -name "*.dylib" -exec cp {} output/ \; 2>/dev/null || true
-        echo "=== Output ==="
-        ls -la output/ || echo "Empty output"
-        
-    - name: Upload DEB
+        echo "=== Output files ==="
+        ls -lah output/ || echo "Empty output"
+
+    - name: Upload DEB (arm64)
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: FakeInfo-deb
+        name: FakeInfo-arm64-deb
         path: packages/*.deb
         if-no-files-found: warn
-        
-    - name: Upload dylib
+
+    - name: Upload dylib (arm64)
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: FakeInfo-dylib
+        name: FakeInfo-arm64-dylib
         path: output/*.dylib
         if-no-files-found: warn

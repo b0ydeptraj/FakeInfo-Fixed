@@ -67,7 +67,6 @@ __attribute__((constructor)) static void initJailbreakPaths() {
         @"/bin/sh",
         @"/usr/sbin/sshd",
         @"/usr/bin/sshd",
-        @"/usr/bin/ssh",
         @"/usr/libexec/sftp-server",
         @"/etc/apt",
         @"/etc/ssh/sshd_config",
@@ -79,64 +78,40 @@ __attribute__((constructor)) static void initJailbreakPaths() {
         @"/private/var/tmp/cydia.log",
         @"/usr/bin/cycript",
         @"/usr/local/bin/cycript",
+        @"/usr/bin/ssh",
         @"/.installed_unc0ver",
         @"/.bootstrapped_electra",
-        @"/.installed_dopamine",
-        @"/.installed_palera1n",
-        
-        // Rootless jailbreak paths (Dopamine, Palera1n rootless, XinaA15 - iOS 15/16)
+        @"/private/var/jb",
+        // Rootless jailbreak paths (Dopamine, Palera1n, XinaA15, Roothide)
         @"/var/jb",
         @"/var/jb/usr",
         @"/var/jb/usr/bin",
         @"/var/jb/usr/lib",
-        @"/var/jb/usr/sbin",
-        @"/var/jb/bin",
-        @"/var/jb/etc",
-        @"/var/jb/Library",
         @"/var/jb/Library/MobileSubstrate",
         @"/var/jb/Library/MobileSubstrate/DynamicLibraries",
         @"/var/jb/Applications/Sileo.app",
         @"/var/jb/Applications/Zebra.app",
-        @"/var/jb/Applications/Filza.app",
-        @"/var/jb/usr/bin/ssh",
-        @"/var/jb/usr/sbin/sshd",
-        @"/var/jb/usr/bin/cycript",
-        @"/var/jb/usr/lib/libhooker.dylib",
-        @"/var/jb/usr/lib/libsubstitute.dylib",
-        @"/var/jb/usr/lib/substrate",
-        
-        // Private var/jb mirror
-        @"/private/var/jb",
-        @"/private/var/jb/usr",
-        @"/private/var/jb/Library",
-        @"/private/var/jb/Applications",
-        
-        // Preboot bootstrap (Palera1n, some Dopamine variants)
-        @"/private/preboot/procursus",
-        @"/private/preboot/procursus/bin",
-        @"/private/preboot/procursus/usr",
-        @"/private/preboot/procursus/Library",
-        
-        // Procursus bootstrap
-        @"/var/LIB",
-        @"/var/ulb",
-        
-        // TrollStore / SideStore indicators
-        @"/var/containers/Bundle/Application/.com.opa334.TrollStore",
-        @"/var/mobile/Library/TrollStore",
-        
-        // Substrate / Substitute / Libhooker
-        @"/usr/lib/libhooker.dylib",
-        @"/usr/lib/libsubstitute.dylib",
-        @"/usr/lib/substrate",
-        @"/Library/Frameworks/CydiaSubstrate.framework",
-        
-        // Dopamine specific
-        @"/var/mobile/Documents/dopamine",
-        @"/.crystalis",
-        
-        // Checkra1n / Unc0ver older paths still relevant
-        @"/.checkra1n",
+        @"/var/jb/bin/bash",
+        @"/var/jb/bin/sh",
+        @"/var/jb/etc/apt",
+        @"/var/jb/.installed_dopamine",
+        @"/var/jb/.installed_palera1n",
+        @"/var/jb/usr/lib/TweakInject",
+        @"/var/jb/usr/lib/TweakInject.dylib",
+        // Preboot paths (Palera1n arm64e)
+        @"/private/preboot/tmp/jb-",
+        @"/private/preboot/tmp/jb-bootstrap",
+        // Sidestore / TrollStore indicators
+        @"/var/containers/Bundle/Application/.installed_trollstore",
+        @"/private/var/mobile/Library/TrollStore",
+        // Common binary indicators
+        @"/usr/bin/su",
+        @"/usr/sbin/frida-server",
+        @"/usr/bin/frida",
+        @"/usr/lib/frida",
+        @"/usr/bin/cynject",
+        @"/var/log/apt",
+        @"/tmp/frida-*",
     ];
 }
 
@@ -369,28 +344,6 @@ void CrashHandler(int sig) {
         bootTimeStr = [NSString stringWithFormat:@"%ld", (long)boottime.tv_sec];
     }
 
-    // Auto-generate random baseline IP (RFC1918 ranges)
-    NSArray *ipPrefixes = @[@"192.168.1", @"192.168.0", @"10.0.0", @"10.0.1", @"172.16.0"];
-    NSString *baselineIP = [NSString stringWithFormat:@"%@.%d",
-                            ipPrefixes[arc4random_uniform((uint32_t)ipPrefixes.count)],
-                            (int)(arc4random_uniform(200) + 2)];
-
-    // World city GPS pool using C arrays (safe at init time, no NSNumber boxing)
-    static const double kGpsLats[] = {
-        40.7128,  34.0522,  41.8781,  51.5072,  48.8566,
-        52.5200,  35.6762,  37.5665,  31.2304, -33.8688,
-       -23.5505,  55.7558,  19.0760,   1.3521,  25.2048
-    };
-    static const double kGpsLons[] = {
-       -74.0060, -118.2437, -87.6298,  -0.1276,   2.3522,
-        13.4050,  139.6503, 126.9780, 121.4737, 151.2093,
-       -46.6333,  37.6173,  72.8777, 103.8198,  55.2708
-    };
-    static const int kGpsCount = 15;
-    int gpsIdx = (int)arc4random_uniform(kGpsCount);
-    NSString *baselineLat = [NSString stringWithFormat:@"%.6f", kGpsLats[gpsIdx]];
-    NSString *baselineLon = [NSString stringWithFormat:@"%.6f", kGpsLons[gpsIdx]];
-
     self.baselineConfig = @{
         @"systemVersion": device.systemVersion ?: @"Unknown",
         @"deviceModel": [NSString stringWithCString:systemInfo.machine encoding:NSUTF8StringEncoding] ?: @"Unknown",
@@ -414,9 +367,9 @@ void CrashHandler(int sig) {
         @"bundleVersion": [bundle.infoDictionary objectForKey:@"CFBundleVersion"] ?: @"Unknown",
         @"displayName": [bundle.infoDictionary objectForKey:@"CFBundleDisplayName"] ?: @"Unknown",
         @"darwinVersion": [NSString stringWithCString:osrelease encoding:NSUTF8StringEncoding] ?: @"Unknown",
-        @"wifiIP": baselineIP,
-        @"gpsLat": baselineLat,
-        @"gpsLon": baselineLon,
+        @"wifiIP": @"192.168.1.100",
+        @"gpsLat": @"10.776900",
+        @"gpsLon": @"106.700900",
         @"bootTime": bootTimeStr,
         @"jailbreak": @"OFF",
         @"keychain": @"OFF",
@@ -461,8 +414,23 @@ void CrashHandler(int sig) {
     if (!self.toggles[@"keychain"]) self.toggles[@"keychain"] = @NO;
     if (!self.toggles[@"hardwareInfo"]) self.toggles[@"hardwareInfo"] = @NO;
     
+    // First install: auto-assign unique GPS and IP so all devices don't share same fingerprint
+    if (!self.settings[@"gpsLat"] || [self.settings[@"gpsLat"] isEqualToString:@"10.776900"]) {
+        static const double kLats[] = {40.7128,34.0522,41.8781,51.5072,48.8566,52.5200,35.6762,37.5665,31.2304,-33.8688,-23.5505,55.7558,19.0760,1.3521,25.2048};
+        static const double kLons[] = {-74.0060,-118.2437,-87.6298,-0.1276,2.3522,13.4050,139.6503,126.9780,121.4737,151.2093,-46.6333,37.6173,72.8777,103.8198,55.2708};
+        int idx = (int)arc4random_uniform(15);
+        self.settings[@"gpsLat"] = [NSString stringWithFormat:@"%.6f", kLats[idx]];
+        self.settings[@"gpsLon"] = [NSString stringWithFormat:@"%.6f", kLons[idx]];
+    }
+    if (!self.settings[@"wifiIP"] || [self.settings[@"wifiIP"] isEqualToString:@"192.168.1.100"]) {
+        NSArray *pfx = @[@"192.168.1",@"192.168.0",@"10.0.0",@"10.0.1",@"172.16.0"];
+        self.settings[@"wifiIP"] = [NSString stringWithFormat:@"%@.%d",
+            pfx[arc4random_uniform(5)], (int)(arc4random_uniform(200)+2)];
+    }
+    
     _cflog(@"Loaded settings for bundle: %@", getRealBundleIdentifier());
 }
+
 
 - (void)persistConfig {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
