@@ -1991,10 +1991,23 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (BOOL)isSupported {
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+    if ([settings isEnabled:@"hardwareInfo"]) return NO;
     return %orig;
 }
 
 - (void)generateTokenWithCompletionHandler:(void (^)(NSData *token, NSError *error))completion {
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"hardwareInfo"] && completion) {
+            // Return random 16-byte fake token
+            uint8_t fakeBytes[16];
+            arc4random_buf(fakeBytes, sizeof(fakeBytes));
+            NSData *fakeToken = [NSData dataWithBytes:fakeBytes length:sizeof(fakeBytes)];
+            completion(fakeToken, nil);
+            return;
+        }
+    } @catch(NSException *e) {}
     %orig;
 }
 %end
@@ -2006,7 +2019,22 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (BOOL)isSupported {
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+    // Return NO to block App Attest when hardwareInfo toggle is ON
+    if ([settings isEnabled:@"hardwareInfo"]) return NO;
     return %orig;
+}
+
+- (void)attestKey:(NSString *)keyId clientDataHash:(NSData *)hash completionHandler:(void (^)(NSData *, NSError *))completion {
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"hardwareInfo"] && completion) {
+            NSError *err = [NSError errorWithDomain:@"DCErrorDomain" code:1 userInfo:nil];
+            completion(nil, err); // Fail silently
+            return;
+        }
+    } @catch(NSException *e) {}
+    %orig;
 }
 %end
 
@@ -2076,6 +2104,19 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // MARK: - Block Firebase Analytics
 %hook FIRAnalytics
 + (void)logEventWithName:(NSString *)name parameters:(NSDictionary *)parameters {
+    // Drop analytics events silently when hardwareInfo toggle is ON
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"hardwareInfo"]) return;
+    } @catch(NSException *e) {}
+    %orig;
+}
+
++ (void)setUserPropertyString:(NSString *)value forName:(NSString *)name {
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"hardwareInfo"]) return;
+    } @catch(NSException *e) {}
     %orig;
 }
 
@@ -2083,10 +2124,9 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            NSString *fakeID = generateStableUUID(@"firebase_app_instance_id");
-            return fakeID;
+            return generateStableUUID(@"firebase_app_instance_id");
         }
-    } @catch(NSException *e) { _cflog(@"[CRASH] FIRAnalytics.appInstanceID: %@", e.reason); }
+    } @catch(NSException *e) {}
     return %orig;
 }
 %end
@@ -2094,11 +2134,28 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // MARK: - Block Branch.io SDK
 %hook Branch
 - (NSString *)getFirstReferringParams {
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            // Return fake organic (non-attributed) referrer params
+            return @"{\"~channel\":\"organic\",\"~feature\":\"organic\",\"~is_first_session\":false}";
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+
+- (NSDictionary *)getLatestReferringParams {
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            return @{@"~channel": @"organic", @"~feature": @"organic", @"~is_first_session": @NO};
+        }
+    } @catch(NSException *e) {}
     return %orig;
 }
 
 + (Branch *)getInstance {
-    return %orig; // Allow instance but block tracking methods
+    return %orig;
 }
 %end
 
@@ -2315,7 +2372,18 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 %hook UITextInputMode
 + (NSArray *)activeInputModes {
-    // Keep original behavior to avoid breaking keyboard/input flows.
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"locale"]) {
+            // Return only standard en-US keyboard to hide custom keyboards
+            // Custom keyboards are a strong device fingerprint signal
+            NSArray *orig = %orig;
+            if (orig.count > 1) {
+                // Filter to first mode only (standard keyboard)
+                return @[orig.firstObject];
+            }
+        }
+    } @catch(NSException *e) {}
     return %orig;
 }
 %end
