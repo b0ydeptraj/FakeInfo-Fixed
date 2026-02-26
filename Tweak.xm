@@ -2864,12 +2864,38 @@ OSStatus _sec_del_handler(CFDictionaryRef query) {
 %hook CMMotionManager
 - (CMAccelerometerData *)accelerometerData {
     @try {
-        CMAccelerometerData *orig = %orig;
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-        if ([settings isEnabled:@"hardwareInfo"] && orig) {
-            _cflog(@"ðŸ“Š Accelerometer data intercepted");
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            // Return nil to prevent accelerometer-based behavioral fingerprinting
+            // Apps use accel patterns (walking gait, hand steadiness) as biometric identifiers
+            return nil;
         }
-        return orig;
+    } @catch(NSException *e) {}
+    return %orig;
+}
+
+- (CMGyroData *)gyroData {
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            return nil; // Block gyroscope fingerprinting
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+
+- (BOOL)isAccelerometerActive {
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"hardwareInfo"]) return NO;
+    } @catch(NSException *e) {}
+    return %orig;
+}
+
+- (BOOL)isGyroActive {
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"hardwareInfo"]) return NO;
     } @catch(NSException *e) {}
     return %orig;
 }
@@ -2901,18 +2927,32 @@ OSStatus _sec_del_handler(CFDictionaryRef query) {
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            _cflog(@"ðŸŽ¤ availableInputs intercepted");
+            NSArray *real = %orig;
+            if (real.count > 1) {
+                return @[real.firstObject];
+            }
+            return real;
         }
     } @catch(NSException *e) {}
     return %orig;
 }
 
 - (id)currentRoute {
+    return %orig;
+}
+
+- (NSInteger)inputNumberOfChannels {
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            _cflog(@"ðŸ”Š currentRoute intercepted");
-        }
+        if ([settings isEnabled:@"hardwareInfo"]) return 1;
+    } @catch(NSException *e) {}
+    return %orig;
+}
+
+- (NSInteger)outputNumberOfChannels {
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"hardwareInfo"]) return 2;
     } @catch(NSException *e) {}
     return %orig;
 }
@@ -2991,7 +3031,18 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
 
 // _dyld_image_count hook - hide injected dylibs
 %hookf(uint32_t, _dyld_image_count) {
-    // Keep original count for consistency; image-name sanitization happens below.
+    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+    if ([settings isEnabled:@"jailbreak"]) {
+        uint32_t total = %orig;
+        uint32_t hidden = 0;
+        for (uint32_t i = 0; i < total; i++) {
+            const char *n = _dyld_get_image_name(i);
+            if (n && (strstr(n, "MobileSubstrate") || strstr(n, "substrate") || strstr(n, "SubstrateLoader") || strstr(n, "TweakInject") || strstr(n, "Inject") || strstr(n, "Cycript") || strstr(n, "libhooker") || strstr(n, "substitute"))) {
+                hidden++;
+            }
+        }
+        return total - hidden;
+    }
     return %orig;
 }
 
