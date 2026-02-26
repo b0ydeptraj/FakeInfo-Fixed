@@ -1707,7 +1707,12 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
     } @catch(NSException *e) { _cflog(@"[CRASH] CTCarrier.mobileNetworkCode: %@", e.reason); }
     return %orig;
 }
+
+- (BOOL)allowsVOIP {
+    return YES;
+}
 %end
+
 
 // MARK: - CTTelephonyNetworkInfo Configuration
 %hook CTTelephonyNetworkInfo
@@ -3143,41 +3148,7 @@ static NSData *_generateFakePushToken() {
 }
 %end
 
-// MARK: - Phase 28: CTCarrier Deep Hook (carrier name/MCC/MNC)
-// CoreTelephony carrier info is used for geo-fingerprinting. Hook at class level.
-
-%hook CTCarrier
-- (NSString *)carrierName {
-    _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
-    NSString *val = [cfg valueForKey:@"carrier"];
-    return (val && val.length > 0 && ![val isEqualToString:@"Unknown"]) ? val : %orig;
-}
-- (NSString *)mobileCountryCode {
-    _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
-    NSString *val = [cfg valueForKey:@"mcc"];
-    return (val && val.length > 0 && ![val isEqualToString:@"000"]) ? val : %orig;
-}
-- (NSString *)mobileNetworkCode {
-    _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
-    NSString *val = [cfg valueForKey:@"mnc"];
-    return (val && val.length > 0 && ![val isEqualToString:@"00"]) ? val : %orig;
-}
-- (NSString *)isoCountryCode {
-    _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
-    NSString *carrier = [cfg valueForKey:@"carrier"];
-    // Map carrier to ISO country
-    if ([carrier hasPrefix:@"Verizon"] || [carrier hasPrefix:@"AT&T"] || [carrier hasPrefix:@"T-Mobile US"])
-        return @"us";
-    if ([carrier hasPrefix:@"EE"] || [carrier hasPrefix:@"O2"] || [carrier hasPrefix:@"Vodafone UK"])
-        return @"gb";
-    if ([carrier hasPrefix:@"Docomo"] || [carrier hasPrefix:@"SoftBank"] || [carrier hasPrefix:@"au"])
-        return @"jp";
-    return %orig;
-}
-- (BOOL)allowsVOIP {
-    return YES;
-}
-%end
+// MARK: - Phase 28: CTCarrier already fully hooked above (Phase - Carrier Configuration)
 
 // MARK: - Phase 29: NSNotificationCenter - Block system detection broadcasts
 // Some anti-fraud SDKs listen for system notifications that reveal jailbreak state.
