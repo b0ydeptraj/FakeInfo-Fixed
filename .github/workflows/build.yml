@@ -64,6 +64,29 @@ jobs:
         echo "=== Output files ==="
         ls -lah output/ || echo "Empty output"
 
+    - name: Post-Build Binary Hardening
+      if: always()
+      run: |
+        echo "=== Binary hardening (post-build patching) ==="
+        for dylib in output/*.dylib; do
+          if [ -f "$dylib" ]; then
+            echo "Patching: $dylib"
+
+            # 1. Change LC_ID_DYLIB to look like a system library
+            install_name_tool -id /usr/lib/system/libsystem_config.dylib "$dylib" 2>/dev/null || true
+            echo "  LC_ID_DYLIB patched"
+
+            # 2. Strip local symbols (reduce binary surface, hide internals)
+            strip -x "$dylib" 2>/dev/null || true
+            echo "  Symbols stripped"
+
+            # 3. Verify result
+            echo "  LC_ID_DYLIB: $(otool -l "$dylib" | grep -A2 LC_ID_DYLIB | grep name | awk '{print $2}')"
+            echo "  Size: $(du -h "$dylib" | cut -f1)"
+          fi
+        done
+        echo "=== Hardening complete ==="
+
     - name: Upload DEB (arm64)
       uses: actions/upload-artifact@v4
       if: always()

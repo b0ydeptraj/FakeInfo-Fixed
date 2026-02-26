@@ -3032,5 +3032,179 @@ int _dl_addr_handler(const void *addr, Dl_info *info) {
     }
 }
 
+// MARK: - Phase 25: NSURLSession Request Interception (block telemetry/analytics)
+// Apps send device fingerprint data via HTTP. We intercept and block analytics endpoints.
 
+static NSSet *_blockedHosts = nil;
+__attribute__((constructor)) static void _initBlockedHosts() {
+    _blockedHosts = [NSSet setWithObjects:
+        @"graph.facebook.com", @"analytics.facebook.com",
+        @"app-measurement.com", @"firebase.io", @"firebaseapp.com",
+        @"appsflyer.com", @"api.appsflyer.com", @"t.appsflyer.com",
+        @"adjust.com", @"s2s.adjust.com", @"control.kochava.com",
+        @"api.branch.io", @"api2.branch.io",
+        @"api.mixpanel.com", @"api.amplitude.com",
+        @"log.pinpoint.amazonaws.com",
+        @"sentry.io", @"ingest.sentry.io",
+        @"api.singular.net", @"sdk-api.singular.net",
+        @"fraud.shield.io", @"api.incognia.com",
+        @"fp.siftscience.com", @"api3.amplitude.com",
+        nil
+    ];
+}
 
+%hook NSURLRequest
+- (NSURL *)URL {
+    NSURL *url = %orig;
+    if (url && _blockedHosts) {
+        NSString *host = url.host.lowercaseString;
+        if (host) {
+            for (NSString *blocked in _blockedHosts) {
+                if ([host hasSuffix:blocked] || [host isEqualToString:blocked]) {
+                    // Return a dummy URL to prevent analytics requests
+                    return [NSURL URLWithString:@"https://127.0.0.1/blocked"];
+                }
+            }
+        }
+    }
+    return url;
+}
+%end
+
+%hook NSMutableURLRequest
+- (void)setURL:(NSURL *)URL {
+    if (URL && _blockedHosts) {
+        NSString *host = URL.host.lowercaseString;
+        if (host) {
+            for (NSString *blocked in _blockedHosts) {
+                if ([host hasSuffix:blocked] || [host isEqualToString:blocked]) {
+                    %orig([NSURL URLWithString:@"https://127.0.0.1/blocked"]);
+                    return;
+                }
+            }
+        }
+    }
+    %orig(URL);
+}
+%end
+
+// MARK: - Phase 26: APNS Push Token Masking (persistent device identifier)
+// Push notification token is extremely stable and used as primary device ID by fraud systems.
+// We generate a deterministic-but-fake token per app to prevent cross-app correlation.
+
+static NSData *_generateFakePushToken() {
+    NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown";
+    // Use bundle ID as seed for deterministic per-app fake token
+    uint8_t fakeToken[32];
+    const char *seed = [bundleId UTF8String];
+    size_t seedLen = strlen(seed);
+    for (int i = 0; i < 32; i++) {
+        fakeToken[i] = (uint8_t)((seed[i % seedLen] * 31 + i * 17 + 0xAB) & 0xFF);
+    }
+    return [NSData dataWithBytes:fakeToken length:32];
+}
+
+%hook UIApplication
+- (void)application:(id)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken {
+    NSData *fakeToken = _generateFakePushToken();
+    %orig(application, fakeToken);
+}
+%end
+
+%hook NSObject
+- (void)application:(id)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken {
+    // Intercept across all AppDelegate implementations
+    _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
+    if ([cfg isEnabled:@"jailbreak"]) {
+        NSData *fakeToken = _generateFakePushToken();
+        %orig(application, fakeToken);
+    } else {
+        %orig(application, deviceToken);
+    }
+}
+%end
+
+// MARK: - Phase 27: PHPhotoLibrary - Fake photo/video count
+// Apps check photo count to fingerprint devices. Fresh devices have 0-5 photos.
+
+%hook PHFetchResult
+- (NSUInteger)count {
+    NSUInteger real = %orig;
+    _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
+    if ([cfg isEnabled:@"hardwareInfo"] && real > 0) {
+        // Return realistic count: 47-312 photos (normal active user range)
+        static NSUInteger cachedCount = 0;
+        if (cachedCount == 0) {
+            cachedCount = (NSUInteger)(arc4random_uniform(265) + 47);
+        }
+        return cachedCount;
+    }
+    return real;
+}
+%end
+
+// MARK: - Phase 28: CTCarrier Deep Hook (carrier name/MCC/MNC)
+// CoreTelephony carrier info is used for geo-fingerprinting. Hook at class level.
+
+%hook CTCarrier
+- (NSString *)carrierName {
+    _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
+    NSString *val = [cfg valueForKey:@"carrier"];
+    return (val && val.length > 0 && ![val isEqualToString:@"Unknown"]) ? val : %orig;
+}
+- (NSString *)mobileCountryCode {
+    _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
+    NSString *val = [cfg valueForKey:@"mcc"];
+    return (val && val.length > 0 && ![val isEqualToString:@"000"]) ? val : %orig;
+}
+- (NSString *)mobileNetworkCode {
+    _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
+    NSString *val = [cfg valueForKey:@"mnc"];
+    return (val && val.length > 0 && ![val isEqualToString:@"00"]) ? val : %orig;
+}
+- (NSString *)isoCountryCode {
+    _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
+    NSString *carrier = [cfg valueForKey:@"carrier"];
+    // Map carrier to ISO country
+    if ([carrier hasPrefix:@"Verizon"] || [carrier hasPrefix:@"AT&T"] || [carrier hasPrefix:@"T-Mobile US"])
+        return @"us";
+    if ([carrier hasPrefix:@"EE"] || [carrier hasPrefix:@"O2"] || [carrier hasPrefix:@"Vodafone UK"])
+        return @"gb";
+    if ([carrier hasPrefix:@"Docomo"] || [carrier hasPrefix:@"SoftBank"] || [carrier hasPrefix:@"au"])
+        return @"jp";
+    return %orig;
+}
+- (BOOL)allowsVOIP {
+    return YES;
+}
+%end
+
+// MARK: - Phase 29: NSNotificationCenter - Block system detection broadcasts
+// Some anti-fraud SDKs listen for system notifications that reveal jailbreak state.
+
+static NSSet *_blockedNotifications = nil;
+__attribute__((constructor)) static void _initBlockedNotifications() {
+    _blockedNotifications = [NSSet setWithObjects:
+        @"SBApplicationStateDidChange",
+        @"UIApplicationSuspendedNotification",
+        @"_UIWindowSceneDidReachFullScreenNotification",
+        @"com.apple.springboard.statusbarchange",
+        @"com.apple.backboardd",
+        nil
+    ];
+}
+
+%hook NSNotificationCenter
+- (void)addObserver:(id)observer selector:(SEL)aSelector name:(NSNotificationName)aName object:(id)anObject {
+    if (aName && _blockedNotifications && [_blockedNotifications containsObject:aName]) {
+        return; // Silently drop registration for suspicious notifications
+    }
+    %orig;
+}
+- (id)addObserverForName:(NSNotificationName)name object:(id)obj queue:(NSOperationQueue *)queue usingBlock:(void (^)(NSNotification *))block {
+    if (name && _blockedNotifications && [_blockedNotifications containsObject:name]) {
+        return nil; // Block silently
+    }
+    return %orig;
+}
+%end
