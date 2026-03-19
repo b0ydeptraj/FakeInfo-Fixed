@@ -1,4 +1,4 @@
-// UIKit Device Configuration Module
+﻿// UIKit Device Configuration Module
 // Internal device configuration handler
 
 #import <UIKit/UIKit.h>
@@ -2873,9 +2873,9 @@ OSStatus _sec_del_handler(CFDictionaryRef query) {
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            // Return nil to prevent accelerometer-based behavioral fingerprinting
-            // Apps use accel patterns (walking gait, hand steadiness) as biometric identifiers
-            return nil;
+            // Return real data - nil crashes apps that don't nil-check
+            // Fingerprinting blocked via isAccelerometerActive/isGyroActive returning NO
+            return %orig;
         }
     } @catch(NSException *e) {}
     return %orig;
@@ -2885,7 +2885,7 @@ OSStatus _sec_del_handler(CFDictionaryRef query) {
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            return nil; // Block gyroscope fingerprinting
+            return %orig; // Safe: real data (fingerprinting blocked via isGyroActive=NO)
         }
     } @catch(NSException *e) {}
     return %orig;
@@ -3036,20 +3036,12 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
 // MARK: - Phase 22: dyld Image Detection Bypass
 // ============================================================================
 
-// _dyld_image_count hook - hide injected dylibs
+// _dyld_image_count - SAFE version
+// DO NOT iterate and call _dyld_get_image_name here!
+// _dyld_get_image_name is also hooked and uses ObjC ([_UIDeviceConfig shared])
+// but _dyld_image_count is called very early by dyld before ObjC runtime is ready.
+// The _dyld_get_image_name hook below handles name hiding independently.
 %hookf(uint32_t, _dyld_image_count) {
-    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-    if ([settings isEnabled:@"jailbreak"]) {
-        uint32_t total = %orig;
-        uint32_t hidden = 0;
-        for (uint32_t i = 0; i < total; i++) {
-            const char *n = _dyld_get_image_name(i);
-            if (n && (strstr(n, "MobileSubstrate") || strstr(n, "substrate") || strstr(n, "SubstrateLoader") || strstr(n, "TweakInject") || strstr(n, "Inject") || strstr(n, "Cycript") || strstr(n, "libhooker") || strstr(n, "substitute"))) {
-                hidden++;
-            }
-        }
-        return total - hidden;
-    }
     return %orig;
 }
 
@@ -3167,7 +3159,9 @@ int _dl_addr_handler(const void *addr, Dl_info *info) {
 // Apps send device fingerprint data via HTTP. We intercept and block analytics endpoints.
 
 static NSSet *_blockedHosts = nil;
-__attribute__((constructor)) static void _initBlockedHosts() {
+// Lazy-init: constructor NSSet crashes before ObjC ready
+static void _ensureBlockedHosts() {
+    if (_blockedHosts) return;
     _blockedHosts = [NSSet setWithObjects:
         @"graph.facebook.com", @"analytics.facebook.com",
         @"app-measurement.com", @"firebase.io", @"firebaseapp.com",
@@ -3187,6 +3181,7 @@ __attribute__((constructor)) static void _initBlockedHosts() {
 %hook NSURLRequest
 - (NSURL *)URL {
     NSURL *url = %orig;
+    _ensureBlockedHosts();
     if (url && _blockedHosts) {
         NSString *host = url.host.lowercaseString;
         if (host) {
@@ -3204,6 +3199,7 @@ __attribute__((constructor)) static void _initBlockedHosts() {
 
 %hook NSMutableURLRequest
 - (void)setURL:(NSURL *)URL {
+    _ensureBlockedHosts();
     if (URL && _blockedHosts) {
         NSString *host = URL.host.lowercaseString;
         if (host) {
@@ -3242,18 +3238,8 @@ static NSData *_generateFakePushToken() {
 }
 %end
 
-%hook NSObject
-- (void)application:(id)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken {
-    // Intercept across all AppDelegate implementations
-    _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
-    if ([cfg isEnabled:@"jailbreak"]) {
-        NSData *fakeToken = _generateFakePushToken();
-        %orig(application, fakeToken);
-    } else {
-        %orig(application, deviceToken);
-    }
-}
-%end
+// REMOVED: %hook NSObject for push token - hooking NSObject intercepts ALL objects and crashes
+// Push token faking handled via %hook UIApplication above
 
 // MARK: - Phase 27: PHPhotoLibrary - Fake photo/video count
 // Apps check photo count to fingerprint devices. Fresh devices have 0-5 photos.
@@ -3280,7 +3266,9 @@ static NSData *_generateFakePushToken() {
 // Some anti-fraud SDKs listen for system notifications that reveal jailbreak state.
 
 static NSSet *_blockedNotifications = nil;
-__attribute__((constructor)) static void _initBlockedNotifications() {
+// Lazy-init: constructor NSSet crashes before ObjC ready
+static void _ensureBlockedNotifications() {
+    if (_blockedNotifications) return;
     _blockedNotifications = [NSSet setWithObjects:
         @"SBApplicationStateDidChange",
         @"UIApplicationSuspendedNotification",
@@ -3293,12 +3281,14 @@ __attribute__((constructor)) static void _initBlockedNotifications() {
 
 %hook NSNotificationCenter
 - (void)addObserver:(id)observer selector:(SEL)aSelector name:(NSNotificationName)aName object:(id)anObject {
+    _ensureBlockedNotifications();
     if (aName && _blockedNotifications && [_blockedNotifications containsObject:aName]) {
         return; // Silently drop registration for suspicious notifications
     }
     %orig;
 }
 - (id)addObserverForName:(NSNotificationName)name object:(id)obj queue:(NSOperationQueue *)queue usingBlock:(void (^)(NSNotification *))block {
+    _ensureBlockedNotifications();
     if (name && _blockedNotifications && [_blockedNotifications containsObject:name]) {
         return nil; // Block silently
     }
