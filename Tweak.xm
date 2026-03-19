@@ -1,4 +1,4 @@
-﻿// UIKit Device Configuration Module
+// UIKit Device Configuration Module
 // Internal device configuration handler
 
 #import <UIKit/UIKit.h>
