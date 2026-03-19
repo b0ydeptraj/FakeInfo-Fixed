@@ -1418,6 +1418,13 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 - (NSDictionary *)infoDictionary {
     @try {
         NSDictionary *origDict = %orig;
+        // CRITICAL: Do NOT fake version for the main app bundle!
+        // Apps check their own version via infoDictionary to compare against server.
+        // Faking it causes forced update dialogs (e.g. Shopee "Update app to continue").
+        // Only fake for framework/embedded bundles used in fingerprinting.
+        if (self == [NSBundle mainBundle]) {
+            return origDict;
+        }
         NSMutableDictionary *dict = origDict ? [origDict mutableCopy] : [NSMutableDictionary dictionary];
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"appVersion"]) dict[@"CFBundleShortVersionString"] = [settings valueForKey:@"appVersion"];
