@@ -2385,9 +2385,9 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
             // Return only standard en-US keyboard to hide custom keyboards
             // Custom keyboards are a strong device fingerprint signal
             NSArray *orig = %orig;
-            if (orig.count > 1) {
-                // Filter to first mode only (standard keyboard)
-                return @[orig.firstObject];
+            if (orig && orig.count > 1) {
+                id first = orig.firstObject;
+                if (first) return @[first];
             }
         }
     } @catch(NSException *e) {}
@@ -3155,143 +3155,11 @@ int _dl_addr_handler(const void *addr, Dl_info *info) {
     }
 }
 
-// MARK: - Phase 25: NSURLSession Request Interception (block telemetry/analytics)
-// Apps send device fingerprint data via HTTP. We intercept and block analytics endpoints.
+// Phase 25 REMOVED: NSURLRequest hooks too aggressive - hooks every network request
 
-static NSSet *_blockedHosts = nil;
-// Lazy-init: constructor NSSet crashes before ObjC ready
-static void _ensureBlockedHosts() {
-    if (_blockedHosts) return;
-    _blockedHosts = [NSSet setWithObjects:
-        @"graph.facebook.com", @"analytics.facebook.com",
-        @"app-measurement.com", @"firebase.io", @"firebaseapp.com",
-        @"appsflyer.com", @"api.appsflyer.com", @"t.appsflyer.com",
-        @"adjust.com", @"s2s.adjust.com", @"control.kochava.com",
-        @"api.branch.io", @"api2.branch.io",
-        @"api.mixpanel.com", @"api.amplitude.com",
-        @"log.pinpoint.amazonaws.com",
-        @"sentry.io", @"ingest.sentry.io",
-        @"api.singular.net", @"sdk-api.singular.net",
-        @"fraud.shield.io", @"api.incognia.com",
-        @"fp.siftscience.com", @"api3.amplitude.com",
-        nil
-    ];
-}
+// Phase 26 REMOVED: UIApplication push token hook - wrong class for delegate method
 
-%hook NSURLRequest
-- (NSURL *)URL {
-    NSURL *url = %orig;
-    _ensureBlockedHosts();
-    if (url && _blockedHosts) {
-        NSString *host = url.host.lowercaseString;
-        if (host) {
-            for (NSString *blocked in _blockedHosts) {
-                if ([host hasSuffix:blocked] || [host isEqualToString:blocked]) {
-                    // Return a dummy URL to prevent analytics requests
-                    return [NSURL URLWithString:@"https://127.0.0.1/blocked"];
-                }
-            }
-        }
-    }
-    return url;
-}
-%end
+// Phase 27 REMOVED: PHFetchResult.count too broad - affects internal Photos framework
+// Phase 28: CTCarrier already hooked above
 
-%hook NSMutableURLRequest
-- (void)setURL:(NSURL *)URL {
-    _ensureBlockedHosts();
-    if (URL && _blockedHosts) {
-        NSString *host = URL.host.lowercaseString;
-        if (host) {
-            for (NSString *blocked in _blockedHosts) {
-                if ([host hasSuffix:blocked] || [host isEqualToString:blocked]) {
-                    %orig([NSURL URLWithString:@"https://127.0.0.1/blocked"]);
-                    return;
-                }
-            }
-        }
-    }
-    %orig(URL);
-}
-%end
-
-// MARK: - Phase 26: APNS Push Token Masking (persistent device identifier)
-// Push notification token is extremely stable and used as primary device ID by fraud systems.
-// We generate a deterministic-but-fake token per app to prevent cross-app correlation.
-
-static NSData *_generateFakePushToken() {
-    NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown";
-    // Use bundle ID as seed for deterministic per-app fake token
-    uint8_t fakeToken[32];
-    const char *seed = [bundleId UTF8String];
-    size_t seedLen = strlen(seed);
-    for (int i = 0; i < 32; i++) {
-        fakeToken[i] = (uint8_t)((seed[i % seedLen] * 31 + i * 17 + 0xAB) & 0xFF);
-    }
-    return [NSData dataWithBytes:fakeToken length:32];
-}
-
-%hook UIApplication
-- (void)application:(id)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken {
-    NSData *fakeToken = _generateFakePushToken();
-    %orig(application, fakeToken);
-}
-%end
-
-// REMOVED: %hook NSObject for push token - hooking NSObject intercepts ALL objects and crashes
-// Push token faking handled via %hook UIApplication above
-
-// MARK: - Phase 27: PHPhotoLibrary - Fake photo/video count
-// Apps check photo count to fingerprint devices. Fresh devices have 0-5 photos.
-
-%hook PHFetchResult
-- (NSUInteger)count {
-    NSUInteger real = %orig;
-    _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
-    if ([cfg isEnabled:@"hardwareInfo"] && real > 0) {
-        // Return realistic count: 47-312 photos (normal active user range)
-        static NSUInteger cachedCount = 0;
-        if (cachedCount == 0) {
-            cachedCount = (NSUInteger)(arc4random_uniform(265) + 47);
-        }
-        return cachedCount;
-    }
-    return real;
-}
-%end
-
-// MARK: - Phase 28: CTCarrier already fully hooked above (Phase - Carrier Configuration)
-
-// MARK: - Phase 29: NSNotificationCenter - Block system detection broadcasts
-// Some anti-fraud SDKs listen for system notifications that reveal jailbreak state.
-
-static NSSet *_blockedNotifications = nil;
-// Lazy-init: constructor NSSet crashes before ObjC ready
-static void _ensureBlockedNotifications() {
-    if (_blockedNotifications) return;
-    _blockedNotifications = [NSSet setWithObjects:
-        @"SBApplicationStateDidChange",
-        @"UIApplicationSuspendedNotification",
-        @"_UIWindowSceneDidReachFullScreenNotification",
-        @"com.apple.springboard.statusbarchange",
-        @"com.apple.backboardd",
-        nil
-    ];
-}
-
-%hook NSNotificationCenter
-- (void)addObserver:(id)observer selector:(SEL)aSelector name:(NSNotificationName)aName object:(id)anObject {
-    _ensureBlockedNotifications();
-    if (aName && _blockedNotifications && [_blockedNotifications containsObject:aName]) {
-        return; // Silently drop registration for suspicious notifications
-    }
-    %orig;
-}
-- (id)addObserverForName:(NSNotificationName)name object:(id)obj queue:(NSOperationQueue *)queue usingBlock:(void (^)(NSNotification *))block {
-    _ensureBlockedNotifications();
-    if (name && _blockedNotifications && [_blockedNotifications containsObject:name]) {
-        return nil; // Block silently
-    }
-    return %orig;
-}
-%end
+// Phase 29 REMOVED: NSNotificationCenter hooks too broad - breaks app lifecycle
