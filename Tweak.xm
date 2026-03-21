@@ -40,7 +40,9 @@ static OSStatus (*orig_SecItemDelete_ptr)(CFDictionaryRef query) = NULL;
 static NSArray *jailbreakURLSchemes = nil;
 static NSArray *jailbreakFilePaths = nil;
 
-__attribute__((constructor)) static void initJailbreakPaths() {
+// Lazy init - moved from __attribute__((constructor)) to avoid ObjC allocation before runtime ready
+static void initJailbreakPaths() {
+    if (jailbreakFilePaths) return; // Already initialized
     jailbreakURLSchemes = @[
         @"cydia", @"sileo", @"zbra", @"filza", @"activator",
         @"undecimus", @"apt-repo", @"installer", @"icy",
@@ -2562,13 +2564,18 @@ OSStatus _sec_del_handler(CFDictionaryRef query) {
 }
 %end
 
-// MARK: - Tweak Initialization (FIXED)
+// MARK: - Tweak Initialization (MERGED - single %ctor)
+static BOOL gJailbreakHidingEnabled = NO; // C-safe flag for _dyld_get_image_name
+
 %ctor {
     @autoreleasepool {
         NSString *bundleId = getRealBundleIdentifier();
         if ([bundleId hasPrefix:@"com.apple."]) {
             return;
         }
+
+        // Init jailbreak paths (moved from __attribute__((constructor)))
+        initJailbreakPaths();
 
         NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
         gDebugLoggingEnabled = [defaults boolForKey:@"UIKitInternalDebug"];
@@ -2578,6 +2585,10 @@ OSStatus _sec_del_handler(CFDictionaryRef query) {
         signal(SIGABRT, CrashHandler);
 
         [_UIDeviceConfig shared];
+
+        // Set C-safe flag for _dyld_get_image_name hook (no ObjC needed)
+        _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
+        gJailbreakHidingEnabled = [cfg isEnabled:@"jailbreak"];
 
         void *handle = dlopen(NULL, RTLD_NOW);
         if (handle) {
@@ -2612,7 +2623,23 @@ OSStatus _sec_del_handler(CFDictionaryRef query) {
             _cflog(@"Error opening handle for current executable: %s", dlerror());
         }
 
-        _cflog(@"Module initialized");
+        // Deep hooks (merged from %ctor #2)
+        void *ptr_ptrace = (void *)MSFindSymbol(NULL, "_ptrace");
+        if (ptr_ptrace) MSHookFunction(ptr_ptrace, (void *)_dbg_trace_handler, (void **)&orig_ptrace);
+        
+        void *ptr_fork = (void *)MSFindSymbol(NULL, "_fork");
+        if (ptr_fork) MSHookFunction(ptr_fork, (void *)_proc_fork_handler, (void **)&orig_fork);
+        
+        void *ptr_getenv = (void *)MSFindSymbol(NULL, "_getenv");
+        if (ptr_getenv) MSHookFunction(ptr_getenv, (void *)_env_get_handler, (void **)&orig_getenv);
+        
+        void *ptr_lstat = (void *)MSFindSymbol(NULL, "_lstat");
+        if (ptr_lstat) MSHookFunction(ptr_lstat, (void *)_fs_lstat_handler, (void **)&orig_lstat);
+        
+        void *ptr_dladdr = (void *)MSFindSymbol(NULL, "_dladdr");
+        if (ptr_dladdr) MSHookFunction(ptr_dladdr, (void *)_dl_addr_handler, (void **)&orig_dladdr_ptr);
+        
+        _cflog(@"All hooks installed (merged)");
         
         // Delay setup until the app is ready.
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
@@ -3046,10 +3073,10 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
 }
 
 // _dyld_get_image_name hook - hide MobileSubstrate dylibs
+// SAFE: uses C static flag set in %ctor, NOT ObjC call (dyld runs before ObjC ready)
 %hookf(const char*, _dyld_get_image_name, uint32_t image_index) {
     const char *name = %orig(image_index);
-    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-    if ([settings isEnabled:@"jailbreak"] && name) {
+    if (gJailbreakHidingEnabled && name) {
         // Hide jailbreak-related dylib names
         if (strstr(name, "MobileSubstrate") ||
             strstr(name, "substrate") ||
@@ -3059,7 +3086,7 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
             strstr(name, "Cycript") ||
             strstr(name, "libhooker") ||
             strstr(name, "substitute")) {
-            _cflog(@"ðŸ›¡ï¸ _dyld_get_image_name hidden: %s", name);
+            // Name hidden (no log - ObjC unsafe in dyld context)
             // Return unique system lib path per index to avoid duplicate collision
             static const char *sysLibs[] = {
                 "/usr/lib/system/libsystem_c.dylib",
@@ -3118,42 +3145,7 @@ int _dl_addr_handler(const void *addr, Dl_info *info) {
     }
     return result;
 }
-// ============================================================================
-// MARK: - Constructor: Setup deep hooks
-// ============================================================================
-
-%ctor {
-    @autoreleasepool {
-        NSString *bundleId = getRealBundleIdentifier();
-        if ([bundleId hasPrefix:@"com.apple."]) {
-            return;
-        }
-
-        _cflog(@"Installing deep hooks");
-        
-        // Hook ptrace
-        void *ptr_ptrace = (void *)MSFindSymbol(NULL, "_ptrace");
-        if (ptr_ptrace) MSHookFunction(ptr_ptrace, (void *)_dbg_trace_handler, (void **)&orig_ptrace);
-        
-        // Hook fork
-        void *ptr_fork = (void *)MSFindSymbol(NULL, "_fork");
-        if (ptr_fork) MSHookFunction(ptr_fork, (void *)_proc_fork_handler, (void **)&orig_fork);
-        
-        // Hook getenv
-        void *ptr_getenv = (void *)MSFindSymbol(NULL, "_getenv");
-        if (ptr_getenv) MSHookFunction(ptr_getenv, (void *)_env_get_handler, (void **)&orig_getenv);
-        
-        // Hook lstat
-        void *ptr_lstat = (void *)MSFindSymbol(NULL, "_lstat");
-        if (ptr_lstat) MSHookFunction(ptr_lstat, (void *)_fs_lstat_handler, (void **)&orig_lstat);
-        
-        // Hook dladdr (counter function integrity checks)
-        void *ptr_dladdr = (void *)MSFindSymbol(NULL, "_dladdr");
-        if (ptr_dladdr) MSHookFunction(ptr_dladdr, (void *)_dl_addr_handler, (void **)&orig_dladdr_ptr);
-        
-        _cflog(@"Deep hooks installed");
-    }
-}
+// %ctor #2 MERGED into %ctor #1 above
 
 // ============================================================================
 // MARK: - Phase 25 REWRITE: NSURLSession analytics blocking (SAFE)
