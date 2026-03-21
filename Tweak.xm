@@ -31,6 +31,12 @@ static int (*orig_stat_ptr)(const char *, struct stat *) = NULL;
 static int (*orig_access_ptr)(const char *, int) = NULL;
 static FILE* (*orig_fopen_ptr)(const char *, const char *) = NULL;
 
+// New hooks: strcmp, dlopen, getuid, geteuid
+static int (*orig_strcmp_ptr)(const char *, const char *) = NULL;
+static void* (*orig_dlopen_ptr)(const char *, int) = NULL;
+static uid_t (*orig_getuid_ptr)(void) = NULL;
+static uid_t (*orig_geteuid_ptr)(void) = NULL;
+
 // Keychain hooks
 static OSStatus (*orig_SecItemCopyMatching_ptr)(CFDictionaryRef query, CFTypeRef *result) = NULL;
 static OSStatus (*orig_SecItemAdd_ptr)(CFDictionaryRef attributes, CFTypeRef *result) = NULL;
@@ -1285,6 +1291,57 @@ int _net_if_handler(struct ifaddrs **ifap) {
         }
     }
     return ret;
+}
+
+// strcmp hook - many apps use strcmp to check jailbreak strings
+int _str_cmp_handler(const char *s1, const char *s2) {
+    if (gJailbreakHidingEnabled && s1 && s2) {
+        // If either string is a jailbreak path, pretend they never match
+        if (_isJailbreakPath(s1) || _isJailbreakPath(s2)) {
+            return 1; // Not equal
+        }
+    }
+    return orig_strcmp_ptr ? orig_strcmp_ptr(s1, s2) : 0;
+}
+
+// dlopen hook - apps try to load jailbreak libraries
+void* _dl_open_handler(const char *path, int mode) {
+    if (gJailbreakHidingEnabled && path) {
+        if (strstr(path, "substrate") || strstr(path, "MobileSubstrate") ||
+            strstr(path, "TweakInject") || strstr(path, "libhooker") ||
+            strstr(path, "substitute") || strstr(path, "cycript") ||
+            strstr(path, "frida") || strstr(path, "Inject")) {
+            return NULL; // Pretend library doesn't exist
+        }
+    }
+    return orig_dlopen_ptr ? orig_dlopen_ptr(path, mode) : NULL;
+}
+
+// getuid/geteuid hook - jailbroken devices run as root (uid=0)
+uid_t _get_uid_handler(void) {
+    if (gJailbreakHidingEnabled) {
+        return 501; // mobile user (non-root)
+    }
+    return orig_getuid_ptr ? orig_getuid_ptr() : 501;
+}
+
+uid_t _get_euid_handler(void) {
+    if (gJailbreakHidingEnabled) {
+        return 501; // mobile user (non-root)
+    }
+    return orig_geteuid_ptr ? orig_geteuid_ptr() : 501;
+}
+
+// Shared jailbreak path checker for all C hooks (stat/access/fopen)
+static inline BOOL _isJailbreakPath(const char *path) {
+    if (!path) return NO;
+    return (strstr(path, "Cydia") || strstr(path, "bash") || strstr(path, "apt") ||
+            strstr(path, "MobileSubstrate") || strstr(path, "substrate") ||
+            strstr(path, "SubstrateLoader") || strstr(path, "TweakInject") ||
+            strstr(path, "Inject") || strstr(path, "sileo") || strstr(path, "zebra") ||
+            strstr(path, "filza") || strstr(path, "ssh") || strstr(path, "cycript") ||
+            strstr(path, "frida") || strstr(path, "libhooker") || strstr(path, "substitute") ||
+            strstr(path, "jailbreak") || strstr(path, "jb/") || strstr(path, "preboot"));
 }
 
 int _fs_stat_handler(const char *path, struct stat *buf) {
@@ -2638,6 +2695,19 @@ static BOOL gJailbreakHidingEnabled = NO; // C-safe flag for _dyld_get_image_nam
         
         void *ptr_dladdr = (void *)MSFindSymbol(NULL, "_dladdr");
         if (ptr_dladdr) MSHookFunction(ptr_dladdr, (void *)_dl_addr_handler, (void **)&orig_dladdr_ptr);
+        
+        // New hooks: strcmp, dlopen, getuid, geteuid
+        void *ptr_strcmp = (void *)MSFindSymbol(NULL, "_strcmp");
+        if (ptr_strcmp) MSHookFunction(ptr_strcmp, (void *)_str_cmp_handler, (void **)&orig_strcmp_ptr);
+        
+        void *ptr_dlopen = (void *)MSFindSymbol(NULL, "_dlopen");
+        if (ptr_dlopen) MSHookFunction(ptr_dlopen, (void *)_dl_open_handler, (void **)&orig_dlopen_ptr);
+        
+        void *ptr_getuid = (void *)MSFindSymbol(NULL, "_getuid");
+        if (ptr_getuid) MSHookFunction(ptr_getuid, (void *)_get_uid_handler, (void **)&orig_getuid_ptr);
+        
+        void *ptr_geteuid = (void *)MSFindSymbol(NULL, "_geteuid");
+        if (ptr_geteuid) MSHookFunction(ptr_geteuid, (void *)_get_euid_handler, (void **)&orig_geteuid_ptr);
         
         _cflog(@"All hooks installed (merged)");
         
