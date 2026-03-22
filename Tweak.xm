@@ -277,9 +277,6 @@ void CrashHandler(int sig) {
 - (void)restoreConfig;
 - (void)persistConfig;
 - (void)clearConfig;
-- (void)applyRandomConfig;
-- (BOOL)isEnabled:(NSString *)key;
-- (NSString *)valueForKey:(NSString *)key;
 @property (nonatomic, strong) NSMutableDictionary *settings;
 @property (nonatomic, strong) NSMutableDictionary *toggles;
 @property (nonatomic, strong) NSDictionary *baselineConfig;
@@ -1271,7 +1268,7 @@ void _showDiagnostics() {
             // Add "Fix All" button if something is off
             if (critical_off > 0) {
                 [alert addAction:[UIAlertAction actionWithTitle:@"Enable All Hooks" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
-                    [cfg applyRandomConfig];
+                    [(id)cfg performSelector:@selector(applyRandomConfig)];
                     _cflog(@"All hooks enabled via diagnostics");
                 }]];
             }
