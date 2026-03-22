@@ -41,6 +41,27 @@ static uid_t (*orig_geteuid_ptr)(void) = NULL;
 // C-safe flag for hooks that run before ObjC is ready
 static BOOL gJailbreakHidingEnabled = NO;
 
+// Diagnostic counters - track hook calls and blocks
+static NSUInteger gHookCallCount = 0;
+static NSUInteger gHookBlockCount = 0;
+static NSMutableDictionary *gHookLog = nil;
+static NSLock *gHookLogLock = nil;
+
+static void _logHookCall(NSString *hookName, BOOL blocked) {
+    if (!gHookLog) return;
+    [gHookLogLock lock];
+    gHookCallCount++;
+    if (blocked) gHookBlockCount++;
+    NSMutableDictionary *entry = gHookLog[hookName];
+    if (!entry) {
+        entry = [NSMutableDictionary dictionaryWithDictionary:@{@"calls": @0, @"blocks": @0}];
+        gHookLog[hookName] = entry;
+    }
+    entry[@"calls"] = @([entry[@"calls"] unsignedIntegerValue] + 1);
+    if (blocked) entry[@"blocks"] = @([entry[@"blocks"] unsignedIntegerValue] + 1);
+    [gHookLogLock unlock];
+}
+
 // Keychain hooks
 static OSStatus (*orig_SecItemCopyMatching_ptr)(CFDictionaryRef query, CFTypeRef *result) = NULL;
 static OSStatus (*orig_SecItemAdd_ptr)(CFDictionaryRef attributes, CFTypeRef *result) = NULL;
@@ -517,6 +538,10 @@ void CrashHandler(int sig) {
             [feedback impactOccurred];
         }
     }
+}
+
+- (void)handleTwoFingerDoubleTap:(UITapGestureRecognizer *)gesture {
+    _showDiagnostics();
 }
 
 - (void)handleFourFingerShortPress:(UILongPressGestureRecognizer *)gesture {
@@ -1051,7 +1076,7 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     settings.settings[@"freeDiskSpace"] = [NSString stringWithFormat:@"%llu", freeStorage];
     settings.settings[@"batteryLevel"] = [NSString stringWithFormat:@"%.2f", batteryLevel];
     
-    // Enable all toggles
+    // Enable ALL toggles for maximum protection
     settings.toggles[@"systemVersion"] = @YES;
     settings.toggles[@"deviceModel"] = @YES;
     settings.toggles[@"deviceName"] = @YES;
@@ -1064,11 +1089,19 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     settings.toggles[@"timezone"] = @YES;
     settings.toggles[@"carrier"] = @YES;
     settings.toggles[@"bootTime"] = @YES;
-    // Keep risky bypass toggles off by default; enable manually when needed.
-    if (!settings.toggles[@"keychain"]) settings.toggles[@"keychain"] = @NO;
-    if (!settings.toggles[@"jailbreak"]) settings.toggles[@"jailbreak"] = @NO;
-    settings.toggles[@"hardwareInfo"] = @YES; // Enable hardware fingerprinting
-    settings.toggles[@"batteryLevel"] = @YES; // Enable battery faking
+    settings.toggles[@"hardwareInfo"] = @YES;   // Screen/RAM/Disk/Touch
+    settings.toggles[@"batteryLevel"] = @YES;   // Battery fake
+    settings.toggles[@"jailbreak"] = @YES;      // Hide JB (CRITICAL)
+    settings.toggles[@"keychain"] = @YES;        // Block old keychain data
+    settings.toggles[@"mcc"] = @YES;             // Mobile Country Code
+    settings.toggles[@"mnc"] = @YES;             // Mobile Network Code
+    settings.toggles[@"gpsLocation"] = @YES;     // GPS spoof
+    settings.toggles[@"screenWidth"] = @YES;     // Screen dimensions
+    settings.toggles[@"screenHeight"] = @YES;
+    settings.toggles[@"screenScale"] = @YES;
+    settings.toggles[@"physicalMemory"] = @YES;  // RAM
+    settings.toggles[@"totalDiskSpace"] = @YES;  // Disk
+    settings.toggles[@"freeDiskSpace"] = @YES;
     
     _cflog(@"ðŸŽ² Deep Random Applied: %@ (%@) iOS %@ | %@ | %@ | Screen: %@x%@ | RAM: %lluGB | Storage: %lluGB/%lluGB | Battery: %.0f%%", 
             device[@"name"], device[@"model"], device[@"ios"],
@@ -1131,12 +1164,95 @@ void _setupGR() {
                 [keyWindow addGestureRecognizer:fourFingerLongPress];
             }
 
+            // 2-finger double-tap = Show diagnostics
+            static UITapGestureRecognizer *twoFingerDiag = nil;
+            if (!twoFingerDiag) {
+                twoFingerDiag = [[UITapGestureRecognizer alloc] initWithTarget:_gestureProxyInstance action:@selector(handleTwoFingerDoubleTap:)];
+                twoFingerDiag.numberOfTapsRequired = 2;
+                twoFingerDiag.numberOfTouchesRequired = 2;
+                [keyWindow addGestureRecognizer:twoFingerDiag];
+            }
+
             if (!fourFingerShortPress) {
                 fourFingerShortPress = [[UILongPressGestureRecognizer alloc] initWithTarget:_gestureProxyInstance action:@selector(handleFourFingerShortPress:)];
                 fourFingerShortPress.numberOfTouchesRequired = 4;
                 fourFingerShortPress.minimumPressDuration = 0.3;
                 [keyWindow addGestureRecognizer:fourFingerShortPress];
             }
+        }
+    });
+}
+
+void _showDiagnostics() {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            NSMutableString *report = [NSMutableString stringWithFormat:
+                @"=== HOOK DIAGNOSTICS ===\n"
+                @"Total calls: %lu\n"
+                @"Total blocks: %lu\n"
+                @"Block rate: %.1f%%\n\n",
+                (unsigned long)gHookCallCount,
+                (unsigned long)gHookBlockCount,
+                gHookCallCount > 0 ? (gHookBlockCount * 100.0 / gHookCallCount) : 0.0];
+            
+            [gHookLogLock lock];
+            // Sort by call count descending
+            NSArray *sortedKeys = [gHookLog keysSortedByValueUsingComparator:^(NSDictionary *a, NSDictionary *b) {
+                return [b[@"calls"] compare:a[@"calls"]];
+            }];
+            
+            for (NSString *hook in sortedKeys) {
+                NSDictionary *entry = gHookLog[hook];
+                NSUInteger calls = [entry[@"calls"] unsignedIntegerValue];
+                NSUInteger blocks = [entry[@"blocks"] unsignedIntegerValue];
+                NSString *status = blocks > 0 ? @"BLOCKED" : @"FAKED";
+                [report appendFormat:@"%@ | %lu calls | %@ (%lu)\n", 
+                    hook, (unsigned long)calls, status, (unsigned long)blocks];
+            }
+            [gHookLogLock unlock];
+            
+            // Check for potential detection
+            _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
+            [report appendString:@"\n=== PROTECTION STATUS ===\n"];
+            [report appendFormat:@"Jailbreak hiding: %@\n", [cfg isEnabled:@"jailbreak"] ? @"ON" : @"OFF"];
+            [report appendFormat:@"Keychain blocking: %@\n", [cfg isEnabled:@"keychain"] ? @"ON" : @"OFF"];
+            [report appendFormat:@"Hardware faking: %@\n", [cfg isEnabled:@"hardwareInfo"] ? @"ON" : @"OFF"];
+            [report appendFormat:@"Device model: %@\n", [cfg isEnabled:@"deviceModel"] ? @"ON" : @"OFF"];
+            [report appendFormat:@"IDFA faking: %@\n", [cfg isEnabled:@"idfa"] ? @"ON" : @"OFF"];
+            [report appendFormat:@"GPS spoofing: %@\n", [cfg isEnabled:@"gpsLocation"] ? @"ON" : @"OFF"];
+            
+            // Show as alert
+            UIAlertController *alert = [UIAlertController
+                alertControllerWithTitle:@"Hook Diagnostics"
+                message:report
+                preferredStyle:UIAlertControllerStyleAlert];
+            
+            [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+            [alert addAction:[UIAlertAction actionWithTitle:@"Reset Counters" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+                [gHookLogLock lock];
+                [gHookLog removeAllObjects];
+                gHookCallCount = 0;
+                gHookBlockCount = 0;
+                [gHookLogLock unlock];
+            }]];
+            
+            UIViewController *rootVC = nil;
+            if (@available(iOS 13.0, *)) {
+                for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                    if (scene.activationState == UISceneActivationStateForegroundActive) {
+                        rootVC = scene.windows.firstObject.rootViewController;
+                        break;
+                    }
+                }
+            }
+            if (!rootVC) {
+                rootVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+            }
+            while (rootVC.presentedViewController) rootVC = rootVC.presentedViewController;
+            if (rootVC) [rootVC presentViewController:alert animated:YES completion:nil];
+            
+        } @catch(NSException *e) {
+            _cflog(@"Diagnostics error: %@", e.reason);
         }
     });
 }
@@ -2691,6 +2807,10 @@ OSStatus _sec_del_handler(CFDictionaryRef query) {
             return;
         }
 
+        // Init diagnostic system
+        gHookLog = [NSMutableDictionary new];
+        gHookLogLock = [NSLock new];
+        
         // Init jailbreak paths (moved from __attribute__((constructor)))
         initJailbreakPaths();
 
