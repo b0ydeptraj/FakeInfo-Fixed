@@ -22,6 +22,7 @@
 #import <CoreLocation/CoreLocation.h>
 #import <CoreMotion/CoreMotion.h>
 #import <mach-o/dyld.h>
+#import <unistd.h>
 
 // MARK: - Original Function Pointers (CRITICAL FIX)
 static int (*orig_sysctlbyname_ptr)(const char *, void *, size_t *, void *, size_t) = NULL;
@@ -1316,6 +1317,18 @@ int _net_if_handler(struct ifaddrs **ifap) {
     return ret;
 }
 
+// Shared jailbreak path checker for all C hooks (stat/access/fopen)
+static inline BOOL _isJailbreakPath(const char *path) {
+    if (!path) return NO;
+    return (strstr(path, "Cydia") || strstr(path, "bash") || strstr(path, "apt") ||
+            strstr(path, "MobileSubstrate") || strstr(path, "substrate") ||
+            strstr(path, "SubstrateLoader") || strstr(path, "TweakInject") ||
+            strstr(path, "Inject") || strstr(path, "sileo") || strstr(path, "zebra") ||
+            strstr(path, "filza") || strstr(path, "ssh") || strstr(path, "cycript") ||
+            strstr(path, "frida") || strstr(path, "libhooker") || strstr(path, "substitute") ||
+            strstr(path, "jailbreak") || strstr(path, "jb/") || strstr(path, "preboot"));
+}
+
 // strcmp hook - many apps use strcmp to check jailbreak strings
 int _str_cmp_handler(const char *s1, const char *s2) {
     if (gJailbreakHidingEnabled && s1 && s2) {
@@ -1355,17 +1368,7 @@ uid_t _get_euid_handler(void) {
     return orig_geteuid_ptr ? orig_geteuid_ptr() : 501;
 }
 
-// Shared jailbreak path checker for all C hooks (stat/access/fopen)
-static inline BOOL _isJailbreakPath(const char *path) {
-    if (!path) return NO;
-    return (strstr(path, "Cydia") || strstr(path, "bash") || strstr(path, "apt") ||
-            strstr(path, "MobileSubstrate") || strstr(path, "substrate") ||
-            strstr(path, "SubstrateLoader") || strstr(path, "TweakInject") ||
-            strstr(path, "Inject") || strstr(path, "sileo") || strstr(path, "zebra") ||
-            strstr(path, "filza") || strstr(path, "ssh") || strstr(path, "cycript") ||
-            strstr(path, "frida") || strstr(path, "libhooker") || strstr(path, "substitute") ||
-            strstr(path, "jailbreak") || strstr(path, "jb/") || strstr(path, "preboot"));
-}
+
 
 int _fs_stat_handler(const char *path, struct stat *buf) {
     _UIDeviceConfig *settings = [_UIDeviceConfig shared];
