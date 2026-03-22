@@ -38,6 +38,9 @@ static void* (*orig_dlopen_ptr)(const char *, int) = NULL;
 static uid_t (*orig_getuid_ptr)(void) = NULL;
 static uid_t (*orig_geteuid_ptr)(void) = NULL;
 
+// C-safe flag for hooks that run before ObjC is ready
+static BOOL gJailbreakHidingEnabled = NO;
+
 // Keychain hooks
 static OSStatus (*orig_SecItemCopyMatching_ptr)(CFDictionaryRef query, CFTypeRef *result) = NULL;
 static OSStatus (*orig_SecItemAdd_ptr)(CFDictionaryRef attributes, CFTypeRef *result) = NULL;
@@ -46,6 +49,20 @@ static OSStatus (*orig_SecItemDelete_ptr)(CFDictionaryRef query) = NULL;
 // Jailbreak detection arrays (must be declared before NSFileManager hook)
 static NSArray *jailbreakURLSchemes = nil;
 static NSArray *jailbreakFilePaths = nil;
+
+// Forward declarations for deep hook handlers (defined after %ctor)
+static int (*orig_ptrace)(int, pid_t, caddr_t, int) = NULL;
+static pid_t (*orig_fork)(void) = NULL;
+static char* (*orig_getenv)(const char *) = NULL;
+static int (*orig_lstat)(const char *, struct stat *) = NULL;
+static int (*orig_dladdr_ptr)(const void *, Dl_info *) = NULL;
+
+// Forward declare handler functions
+int _dbg_trace_handler(int request, pid_t pid, caddr_t addr, int data);
+pid_t _proc_fork_handler(void);
+char* _env_get_handler(const char *name);
+int _fs_lstat_handler(const char *path, struct stat *buf);
+int _dl_addr_handler(const void *addr, Dl_info *info);
 
 // Lazy init - moved from __attribute__((constructor)) to avoid ObjC allocation before runtime ready
 static void initJailbreakPaths() {
@@ -2667,8 +2684,6 @@ OSStatus _sec_del_handler(CFDictionaryRef query) {
 %end
 
 // MARK: - Tweak Initialization (MERGED - single %ctor)
-static BOOL gJailbreakHidingEnabled = NO; // C-safe flag for _dyld_get_image_name
-
 %ctor {
     @autoreleasepool {
         NSString *bundleId = getRealBundleIdentifier();
@@ -3119,12 +3134,7 @@ static BOOL gJailbreakHidingEnabled = NO; // C-safe flag for _dyld_get_image_nam
 // ============================================================================
 
 // Original function pointers for deep hooks
-static int (*orig_ptrace)(int, pid_t, caddr_t, int) = NULL;
-static pid_t (*orig_fork)(void) = NULL;
 static int (*orig_posix_spawn)(pid_t *, const char *, void *, void *, char *const [], char *const []) = NULL;
-static char* (*orig_getenv)(const char *) = NULL;
-static int (*orig_lstat)(const char *, struct stat *) = NULL;
-static int (*orig_dladdr_ptr)(const void *, Dl_info *) = NULL;
 
 // ptrace hook - prevent debugger detection
 int _dbg_trace_handler(int request, pid_t pid, caddr_t addr, int data) {
