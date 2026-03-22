@@ -516,7 +516,7 @@ void CrashHandler(int sig) {
 
 - (void)handleFourFingerLongPress:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state == UIGestureRecognizerStateBegan) {
-        _cflog(@"Four finger long press detected - showing UI");
+        _cflog(@"Three finger long press detected - showing UI");
         _showConfigUI();
         if (@available(iOS 10.0, *)) {
             UIImpactFeedbackGenerator *feedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleHeavy];
@@ -531,7 +531,7 @@ void CrashHandler(int sig) {
 
 - (void)handleFourFingerShortPress:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state == UIGestureRecognizerStateBegan) {
-        _cflog(@"Four finger short press detected - showing UI");
+        _cflog(@"Three finger short press detected - showing UI");
         _showConfigUI();
         if (@available(iOS 10.0, *)) {
             UIImpactFeedbackGenerator *feedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
@@ -1137,16 +1137,11 @@ void _setupGR() {
 
             if (!_gestureProxyInstance) _gestureProxyInstance = [[_UIGestureProxy alloc] init];
 
-            if (!tripleFingerGesture) {
-                tripleFingerGesture = [[UITapGestureRecognizer alloc] initWithTarget:_gestureProxyInstance action:@selector(handleTripleFingerTap:)];
-                tripleFingerGesture.numberOfTapsRequired = 2;
-                tripleFingerGesture.numberOfTouchesRequired = 4;
-                [keyWindow addGestureRecognizer:tripleFingerGesture];
-            }
+            // Removed triple-finger double-tap for settings (shake to open instead)
 
             if (!fourFingerLongPress) {
                 fourFingerLongPress = [[UILongPressGestureRecognizer alloc] initWithTarget:_gestureProxyInstance action:@selector(handleFourFingerLongPress:)];
-                fourFingerLongPress.numberOfTouchesRequired = 4;
+                fourFingerLongPress.numberOfTouchesRequired = 3;
                 fourFingerLongPress.minimumPressDuration = 1.5;
                 [keyWindow addGestureRecognizer:fourFingerLongPress];
             }
@@ -1162,7 +1157,7 @@ void _setupGR() {
 
             if (!fourFingerShortPress) {
                 fourFingerShortPress = [[UILongPressGestureRecognizer alloc] initWithTarget:_gestureProxyInstance action:@selector(handleFourFingerShortPress:)];
-                fourFingerShortPress.numberOfTouchesRequired = 4;
+                fourFingerShortPress.numberOfTouchesRequired = 3;
                 fourFingerShortPress.minimumPressDuration = 0.3;
                 [keyWindow addGestureRecognizer:fourFingerShortPress];
             }
@@ -1176,86 +1171,62 @@ void _showDiagnostics() {
             _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
             NSMutableString *report = [NSMutableString string];
             
-            // === HOOK STATUS: which hooks are active and working ===
+            // === HOOK STATUS ===
             [report appendString:@"=== HOOK STATUS ===\n\n"];
             
-            // Test each hook category and report real status
-            struct { NSString *key; NSString *name; NSString *risk; } checks[] = {
-                {@"deviceModel", @"Device Model", @"HIGH - app fingerprints model"},
-                {@"systemVersion", @"iOS Version", @"HIGH - version check"},
-                {@"identifierForVendor", @"IDFV (UUID)", @"CRITICAL - unique device ID"},
-                {@"idfa", @"IDFA (Ad ID)", @"CRITICAL - tracking ID"},
-                {@"jailbreak", @"Hide Jailbreak", @"CRITICAL - instant ban if detected"},
-                {@"keychain", @"Block Keychain", @"HIGH - old device data persists!"},
-                {@"hardwareInfo", @"Hardware (Screen/RAM)", @"HIGH - hardware fingerprint"},
-                {@"wifiIP", @"WiFi IP", @"MEDIUM - network fingerprint"},
-                {@"locale", @"Locale/Language", @"MEDIUM - locale fingerprint"},
-                {@"timezone", @"Timezone", @"MEDIUM - timezone mismatch"},
-                {@"carrier", @"Carrier Name", @"MEDIUM - carrier fingerprint"},
-                {@"mcc", @"MCC (Country)", @"LOW - mobile country"},
-                {@"mnc", @"MNC (Network)", @"LOW - mobile network"},
-                {@"bootTime", @"Boot Time", @"MEDIUM - uptime fingerprint"},
-                {@"darwinVersion", @"Darwin Version", @"LOW - kernel version"},
-                {@"batteryLevel", @"Battery Level", @"LOW - battery fingerprint"},
-                {@"gpsLocation", @"GPS Location", @"MEDIUM - location spoof"},
-                {@"bundleVersion", @"Build Version", @"LOW - build number"},
-            };
+            NSArray *keys = @[@"deviceModel",@"systemVersion",@"identifierForVendor",@"idfa",
+                              @"jailbreak",@"keychain",@"hardwareInfo",@"wifiIP",
+                              @"locale",@"timezone",@"carrier",@"mcc",@"mnc",
+                              @"bootTime",@"darwinVersion",@"batteryLevel",@"gpsLocation",@"bundleVersion"];
+            NSArray *names = @[@"Device Model",@"iOS Version",@"IDFV (UUID)",@"IDFA (Ad ID)",
+                               @"Hide Jailbreak",@"Block Keychain",@"Hardware (Screen/RAM)",@"WiFi IP",
+                               @"Locale/Language",@"Timezone",@"Carrier Name",@"MCC (Country)",@"MNC (Network)",
+                               @"Boot Time",@"Darwin Version",@"Battery Level",@"GPS Location",@"Build Version"];
             
-            int total = sizeof(checks)/sizeof(checks[0]);
+            int total = (int)keys.count;
             int active = 0;
             int critical_off = 0;
             
             for (int i = 0; i < total; i++) {
-                BOOL on = [cfg isEnabled:checks[i].key];
-                if (on) active++;
-                NSString *icon = on ? @"ON" : @"OFF";
-                
-                // Flag critical hooks that are OFF
-                if (!on && ([checks[i].risk hasPrefix:@"CRITICAL"] || [checks[i].risk hasPrefix:@"HIGH"])) {
-                    [report appendFormat:@"OFF %@ - %@\n", checks[i].name, checks[i].risk];
-                    critical_off++;
-                } else if (on) {
-                    [report appendFormat:@"ON  %@\n", checks[i].name];
+                BOOL on = [cfg isEnabled:keys[i]];
+                if (on) {
+                    active++;
+                    [report appendFormat:@"ON  %@\n", names[i]];
+                } else {
+                    // Critical hooks warning
+                    if (i < 7) { // First 7 are critical/high
+                        [report appendFormat:@"OFF %@ !!!\n", names[i]];
+                        critical_off++;
+                    }
                 }
             }
             
-            // === DETECTION RISK ASSESSMENT ===
-            [report appendFormat:@"\n=== RISK ASSESSMENT ===\n"];
-            [report appendFormat:@"Active: %d/%d hooks\n", active, total];
-            
+            [report appendFormat:@"\n=== RISK: %d/%d active ===\n", active, total];
             if (critical_off > 0) {
-                [report appendFormat:@"DANGER: %d critical hooks OFF!\n", critical_off];
+                [report appendFormat:@"DANGER: %d critical OFF!\n", critical_off];
             } else {
                 [report appendString:@"All critical hooks active\n"];
             }
             
-            // Check for specific detection vectors
-            [report appendString:@"\n=== DETECTION VECTORS ===\n"];
+            // Detection vectors - check if C hooks are installed
+            [report appendString:@"\n=== C HOOKS ===\n"];
             
-            // C function hooks check
-            BOOL hasCHooks = (orig_sysctlbyname_ptr != NULL);
-            [report appendFormat:@"%@ sysctlbyname hook\n", hasCHooks ? @"OK" : @"FAIL"];
+            // Check stored orig pointers (set by MSHookFunction in %ctor)
+            NSArray *hookNames = @[@"sysctlbyname",@"stat",@"ptrace",@"dladdr",@"strcmp",@"dlopen",@"getuid",@"dyld hiding"];
+            BOOL hookStatus[] = {
+                orig_sysctlbyname_ptr != NULL,
+                orig_stat_ptr != NULL,
+                orig_ptrace != NULL,
+                orig_dladdr_ptr != NULL,
+                orig_strcmp_ptr != NULL,
+                orig_dlopen_ptr != NULL,
+                orig_getuid_ptr != NULL,
+                gJailbreakHidingEnabled
+            };
             
-            BOOL hasStatHook = (orig_stat_ptr != NULL);
-            [report appendFormat:@"%@ stat/access/fopen hooks\n", hasStatHook ? @"OK" : @"FAIL"];
-            
-            BOOL hasPtraceHook = (orig_ptrace != NULL);
-            [report appendFormat:@"%@ Anti-debug (ptrace)\n", hasPtraceHook ? @"OK" : @"FAIL"];
-            
-            BOOL hasDladdrHook = (orig_dladdr_ptr != NULL);
-            [report appendFormat:@"%@ dladdr hook (hide dylib)\n", hasDladdrHook ? @"OK" : @"FAIL"];
-            
-            BOOL hasStrcmpHook = (orig_strcmp_ptr != NULL);
-            [report appendFormat:@"%@ strcmp hook\n", hasStrcmpHook ? @"OK" : @"FAIL"];
-            
-            BOOL hasDlopenHook = (orig_dlopen_ptr != NULL);
-            [report appendFormat:@"%@ dlopen hook\n", hasDlopenHook ? @"OK" : @"FAIL"];
-            
-            BOOL hasGetuidHook = (orig_getuid_ptr != NULL);
-            [report appendFormat:@"%@ getuid/geteuid hook\n", hasGetuidHook ? @"OK" : @"FAIL"];
-            
-            // Jailbreak flag
-            [report appendFormat:@"%@ dyld image hiding\n", gJailbreakHidingEnabled ? @"OK" : @"FAIL"];
+            for (int i = 0; i < 8; i++) {
+                [report appendFormat:@"%@ %@\n", hookStatus[i] ? @"OK" : @"--", hookNames[i]];
+            }
             
             // Show as scrollable alert
             UIAlertController *alert = [UIAlertController
