@@ -41,26 +41,7 @@ static uid_t (*orig_geteuid_ptr)(void) = NULL;
 // C-safe flag for hooks that run before ObjC is ready
 static BOOL gJailbreakHidingEnabled = NO;
 
-// Diagnostic counters - track hook calls and blocks
-static NSUInteger gHookCallCount = 0;
-static NSUInteger gHookBlockCount = 0;
-static NSMutableDictionary *gHookLog = nil;
-static NSLock *gHookLogLock = nil;
-
-static void _logHookCall(NSString *hookName, BOOL blocked) {
-    if (!gHookLog) return;
-    [gHookLogLock lock];
-    gHookCallCount++;
-    if (blocked) gHookBlockCount++;
-    NSMutableDictionary *entry = gHookLog[hookName];
-    if (!entry) {
-        entry = [NSMutableDictionary dictionaryWithDictionary:@{@"calls": @0, @"blocks": @0}];
-        gHookLog[hookName] = entry;
-    }
-    entry[@"calls"] = @([entry[@"calls"] unsignedIntegerValue] + 1);
-    if (blocked) entry[@"blocks"] = @([entry[@"blocks"] unsignedIntegerValue] + 1);
-    [gHookLogLock unlock];
-}
+// Diagnostics: hook status checked in realtime via _showDiagnostics()
 
 // Keychain hooks
 static OSStatus (*orig_SecItemCopyMatching_ptr)(CFDictionaryRef query, CFTypeRef *result) = NULL;
@@ -1119,6 +1100,8 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
 
 @end
 
+void _showDiagnostics();
+
 void _setupGR() {
     dispatch_async(dispatch_get_main_queue(), ^{
         @autoreleasepool {
@@ -1186,55 +1169,105 @@ void _setupGR() {
 void _showDiagnostics() {
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {
-            NSMutableString *report = [NSMutableString stringWithFormat:
-                @"=== HOOK DIAGNOSTICS ===\n"
-                @"Total calls: %lu\n"
-                @"Total blocks: %lu\n"
-                @"Block rate: %.1f%%\n\n",
-                (unsigned long)gHookCallCount,
-                (unsigned long)gHookBlockCount,
-                gHookCallCount > 0 ? (gHookBlockCount * 100.0 / gHookCallCount) : 0.0];
-            
-            [gHookLogLock lock];
-            // Sort by call count descending
-            NSArray *sortedKeys = [gHookLog keysSortedByValueUsingComparator:^(NSDictionary *a, NSDictionary *b) {
-                return [b[@"calls"] compare:a[@"calls"]];
-            }];
-            
-            for (NSString *hook in sortedKeys) {
-                NSDictionary *entry = gHookLog[hook];
-                NSUInteger calls = [entry[@"calls"] unsignedIntegerValue];
-                NSUInteger blocks = [entry[@"blocks"] unsignedIntegerValue];
-                NSString *status = blocks > 0 ? @"BLOCKED" : @"FAKED";
-                [report appendFormat:@"%@ | %lu calls | %@ (%lu)\n", 
-                    hook, (unsigned long)calls, status, (unsigned long)blocks];
-            }
-            [gHookLogLock unlock];
-            
-            // Check for potential detection
             _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
-            [report appendString:@"\n=== PROTECTION STATUS ===\n"];
-            [report appendFormat:@"Jailbreak hiding: %@\n", [cfg isEnabled:@"jailbreak"] ? @"ON" : @"OFF"];
-            [report appendFormat:@"Keychain blocking: %@\n", [cfg isEnabled:@"keychain"] ? @"ON" : @"OFF"];
-            [report appendFormat:@"Hardware faking: %@\n", [cfg isEnabled:@"hardwareInfo"] ? @"ON" : @"OFF"];
-            [report appendFormat:@"Device model: %@\n", [cfg isEnabled:@"deviceModel"] ? @"ON" : @"OFF"];
-            [report appendFormat:@"IDFA faking: %@\n", [cfg isEnabled:@"idfa"] ? @"ON" : @"OFF"];
-            [report appendFormat:@"GPS spoofing: %@\n", [cfg isEnabled:@"gpsLocation"] ? @"ON" : @"OFF"];
+            NSMutableString *report = [NSMutableString string];
             
-            // Show as alert
+            // === HOOK STATUS: which hooks are active and working ===
+            [report appendString:@"=== HOOK STATUS ===\n\n"];
+            
+            // Test each hook category and report real status
+            struct { NSString *key; NSString *name; NSString *risk; } checks[] = {
+                {@"deviceModel", @"Device Model", @"HIGH - app fingerprints model"},
+                {@"systemVersion", @"iOS Version", @"HIGH - version check"},
+                {@"identifierForVendor", @"IDFV (UUID)", @"CRITICAL - unique device ID"},
+                {@"idfa", @"IDFA (Ad ID)", @"CRITICAL - tracking ID"},
+                {@"jailbreak", @"Hide Jailbreak", @"CRITICAL - instant ban if detected"},
+                {@"keychain", @"Block Keychain", @"HIGH - old device data persists!"},
+                {@"hardwareInfo", @"Hardware (Screen/RAM)", @"HIGH - hardware fingerprint"},
+                {@"wifiIP", @"WiFi IP", @"MEDIUM - network fingerprint"},
+                {@"locale", @"Locale/Language", @"MEDIUM - locale fingerprint"},
+                {@"timezone", @"Timezone", @"MEDIUM - timezone mismatch"},
+                {@"carrier", @"Carrier Name", @"MEDIUM - carrier fingerprint"},
+                {@"mcc", @"MCC (Country)", @"LOW - mobile country"},
+                {@"mnc", @"MNC (Network)", @"LOW - mobile network"},
+                {@"bootTime", @"Boot Time", @"MEDIUM - uptime fingerprint"},
+                {@"darwinVersion", @"Darwin Version", @"LOW - kernel version"},
+                {@"batteryLevel", @"Battery Level", @"LOW - battery fingerprint"},
+                {@"gpsLocation", @"GPS Location", @"MEDIUM - location spoof"},
+                {@"bundleVersion", @"Build Version", @"LOW - build number"},
+            };
+            
+            int total = sizeof(checks)/sizeof(checks[0]);
+            int active = 0;
+            int critical_off = 0;
+            
+            for (int i = 0; i < total; i++) {
+                BOOL on = [cfg isEnabled:checks[i].key];
+                if (on) active++;
+                NSString *icon = on ? @"ON" : @"OFF";
+                
+                // Flag critical hooks that are OFF
+                if (!on && ([checks[i].risk hasPrefix:@"CRITICAL"] || [checks[i].risk hasPrefix:@"HIGH"])) {
+                    [report appendFormat:@"OFF %@ - %@\n", checks[i].name, checks[i].risk];
+                    critical_off++;
+                } else if (on) {
+                    [report appendFormat:@"ON  %@\n", checks[i].name];
+                }
+            }
+            
+            // === DETECTION RISK ASSESSMENT ===
+            [report appendFormat:@"\n=== RISK ASSESSMENT ===\n"];
+            [report appendFormat:@"Active: %d/%d hooks\n", active, total];
+            
+            if (critical_off > 0) {
+                [report appendFormat:@"DANGER: %d critical hooks OFF!\n", critical_off];
+            } else {
+                [report appendString:@"All critical hooks active\n"];
+            }
+            
+            // Check for specific detection vectors
+            [report appendString:@"\n=== DETECTION VECTORS ===\n"];
+            
+            // C function hooks check
+            BOOL hasCHooks = (orig_sysctlbyname_ptr != NULL);
+            [report appendFormat:@"%@ sysctlbyname hook\n", hasCHooks ? @"OK" : @"FAIL"];
+            
+            BOOL hasStatHook = (orig_stat_ptr != NULL);
+            [report appendFormat:@"%@ stat/access/fopen hooks\n", hasStatHook ? @"OK" : @"FAIL"];
+            
+            BOOL hasPtraceHook = (orig_ptrace != NULL);
+            [report appendFormat:@"%@ Anti-debug (ptrace)\n", hasPtraceHook ? @"OK" : @"FAIL"];
+            
+            BOOL hasDladdrHook = (orig_dladdr_ptr != NULL);
+            [report appendFormat:@"%@ dladdr hook (hide dylib)\n", hasDladdrHook ? @"OK" : @"FAIL"];
+            
+            BOOL hasStrcmpHook = (orig_strcmp_ptr != NULL);
+            [report appendFormat:@"%@ strcmp hook\n", hasStrcmpHook ? @"OK" : @"FAIL"];
+            
+            BOOL hasDlopenHook = (orig_dlopen_ptr != NULL);
+            [report appendFormat:@"%@ dlopen hook\n", hasDlopenHook ? @"OK" : @"FAIL"];
+            
+            BOOL hasGetuidHook = (orig_getuid_ptr != NULL);
+            [report appendFormat:@"%@ getuid/geteuid hook\n", hasGetuidHook ? @"OK" : @"FAIL"];
+            
+            // Jailbreak flag
+            [report appendFormat:@"%@ dyld image hiding\n", gJailbreakHidingEnabled ? @"OK" : @"FAIL"];
+            
+            // Show as scrollable alert
             UIAlertController *alert = [UIAlertController
                 alertControllerWithTitle:@"Hook Diagnostics"
                 message:report
                 preferredStyle:UIAlertControllerStyleAlert];
             
             [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-            [alert addAction:[UIAlertAction actionWithTitle:@"Reset Counters" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
-                [gHookLogLock lock];
-                [gHookLog removeAllObjects];
-                gHookCallCount = 0;
-                gHookBlockCount = 0;
-                [gHookLogLock unlock];
-            }]];
+            
+            // Add "Fix All" button if something is off
+            if (critical_off > 0) {
+                [alert addAction:[UIAlertAction actionWithTitle:@"Enable All Hooks" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+                    [cfg applyRandomConfig];
+                    _cflog(@"All hooks enabled via diagnostics");
+                }]];
+            }
             
             UIViewController *rootVC = nil;
             if (@available(iOS 13.0, *)) {
@@ -2807,10 +2840,6 @@ OSStatus _sec_del_handler(CFDictionaryRef query) {
             return;
         }
 
-        // Init diagnostic system
-        gHookLog = [NSMutableDictionary new];
-        gHookLogLock = [NSLock new];
-        
         // Init jailbreak paths (moved from __attribute__((constructor)))
         initJailbreakPaths();
 
