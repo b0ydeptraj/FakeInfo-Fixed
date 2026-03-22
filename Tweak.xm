@@ -244,6 +244,10 @@ static CLLocationCoordinate2D getGPSWithDrift(void) {
     return CLLocationCoordinate2DMake(gpsBaseLatitude + latDrift, gpsBaseLongitude + lonDrift);
 }
 
+// Forward declarations
+void _showDiagnostics();
+void _showConfigUI();
+
 // MARK: - Logging & Anti-Crash
 void _cflog(NSString *format, ...) {
     if (!gDebugLoggingEnabled) return;
@@ -273,6 +277,9 @@ void CrashHandler(int sig) {
 - (void)restoreConfig;
 - (void)persistConfig;
 - (void)clearConfig;
+- (void)applyRandomConfig;
+- (BOOL)isEnabled:(NSString *)key;
+- (NSString *)valueForKey:(NSString *)key;
 @property (nonatomic, strong) NSMutableDictionary *settings;
 @property (nonatomic, strong) NSMutableDictionary *toggles;
 @property (nonatomic, strong) NSDictionary *baselineConfig;
