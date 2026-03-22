@@ -1,13 +1,43 @@
 ---
 name: problem-solving
-description: Use when stuck, facing complex decisions, or need creative solutions. Provides structured techniques for breaking through mental blocks.
+description: Use when a hub needs hypotheses, trade-offs, or resolution paths grounded in current evidence. Option-generation and root-cause utility.
 ---
 
-Create a problem-solving skill with advanced techniques:
+# Mission
+Turn evidence into plausible options and ranked next moves.
 
-Create `.agent/skills/problem-solving/SKILL.md` with:
+## Default outputs
+- options, hypotheses, and trade-offs appended to the active artifact
 
-## When Stuck - Symptom to Technique Mapping
+## Typical tasks
+- Generate root-cause hypotheses.
+- Compare implementation or mitigation options.
+- Call out the cheapest validating experiment.
 
-| Symptom | Technique |
-|
+## Working rules
+- Ground every option in evidence already collected.
+- State uncertainty instead of bluffing.
+- Recommend escalation if the issue is really a planning problem.
+
+## Role
+- utility-provider
+
+## Layer
+- layer-3-utility-providers
+
+## Inputs
+- active hub or orchestrator request
+- current authoritative artifact
+- only the evidence relevant to this pass
+
+## Outputs
+- options, hypotheses, and trade-offs appended to the active artifact
+
+## Reference skills and rules
+- Root cause beats guess-and-patch.
+- Surface trade-offs before implementation starts.
+
+## Likely next step
+- debug-hub
+- plan-hub
+- review-hub

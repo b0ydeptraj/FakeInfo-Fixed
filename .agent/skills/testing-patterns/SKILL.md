@@ -1,19 +1,48 @@
 ---
 name: testing-patterns
-description: Reference when writing tests, creating fixtures, or understanding testing patterns.
+description: Use when adding tests, updating fixtures, validating regressions, or deciding what proof is enough. Capture how the project tests code, mocks dependencies, and gathers evidence.
 ---
 
-Analyze the project's testing approach:
-1. Check for: pytest, unittest, hypothesis, pytest-mock, pytest-cov, faker, factory_boy
-2. Find test folders: tests/, test/, *_test.py, test_*.py, conftest.py
-3. Detect testing types: Unit, Integration, E2E, Property-based
-4. Identify patterns: Fixtures, mocking, test data factories
+# Mission
+Turn the project test suite into a usable playbook for implementation and quality review.
 
-Create `.agent/skills/testing-patterns/SKILL.md` with:
-- Folder structure and naming rules
-- How tests are organized
-- How to mock dependencies
-- Common fixture patterns
-- How to test async code (if applicable)
+## Produce `.ai-kit/references/testing-patterns.md`
+Cover:
+- frameworks and folder rules
+- fixture and factory patterns
+- mocking and dependency isolation
+- async or integration testing rules
+- commands for local evidence
+- coverage gaps and brittle areas
 
-Skip if no tests exist.
+## Working rules
+- Name the real commands contributors should run for fast confidence versus deeper verification.
+- Show where fixtures, factories, and mocks live and when each should be preferred.
+- Call out unstable tests, heavy integration paths, and areas with weak coverage.
+- Tie recommendations back to risk, not just test quantity.
+
+## Role
+- quality-support
+
+## Layer
+- layer-4-specialists-and-standalones
+
+## Inputs
+- test folders
+- test config
+- fixtures or factories
+- CI or local test commands
+
+## Outputs
+- .ai-kit/references/testing-patterns.md
+
+## Reference skills and rules
+- Explain how to produce evidence locally, not only what frameworks exist.
+- Map tests to risk areas and brittle zones where regressions cluster.
+
+## Likely next step
+- developer
+- qa-governor
+- debug-hub
+- test-hub
+- review-hub

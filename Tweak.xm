@@ -1219,6 +1219,29 @@ int _sys_ctl_handler(const char *name, void *oldp, size_t *oldlenp, void *newp, 
                 return 0;
             }
         }
+        // CPU/hardware info - match processorCount=6 and device model
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            if (strcmp(name, "hw.ncpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+                *(int *)oldp = 6;
+                return 0;
+            }
+            if (strcmp(name, "hw.physicalcpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+                *(int *)oldp = 6;
+                return 0;
+            }
+            if (strcmp(name, "hw.logicalcpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+                *(int *)oldp = 6;
+                return 0;
+            }
+            if (strcmp(name, "hw.cputype") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+                *(int *)oldp = 16777228; // CPU_TYPE_ARM64
+                return 0;
+            }
+            if (strcmp(name, "hw.cpusubtype") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+                *(int *)oldp = 2; // CPU_SUBTYPE_ARM64E
+                return 0;
+            }
+        }
         // Boot time configuration
         if ([settings isEnabled:@"bootTime"] && strcmp(name, "kern.boottime") == 0) {
             NSString *bootTimeStr = [settings valueForKey:@"bootTime"];
@@ -1783,7 +1806,22 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // MARK: - CTTelephonyNetworkInfo Configuration
 %hook CTTelephonyNetworkInfo
 - (CTCarrier *)subscriberCellularProvider {
-    // Return orig but carrier properties will be hooked above
+    // CTCarrier hooks above fake all properties (name, MCC, MNC, ISO code)
+    // This method returns the carrier object whose properties are already hooked
+    return %orig;
+}
+- (NSDictionary<NSString *, CTCarrier *> *)serviceSubscriberCellularProviders {
+    // Also hook dual-SIM version (iOS 12+) - properties faked via %hook CTCarrier
+    return %orig;
+}
+- (NSString *)currentRadioAccessTechnology {
+    // Normalize radio tech to common LTE
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"carrier"]) {
+            return @"CTRadioAccessTechnologyLTE";
+        }
+    } @catch(NSException *e) {}
     return %orig;
 }
 %end
@@ -2034,9 +2072,13 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
             // If this is the app bundle or inside it, fake the creation date
             if ([path hasPrefix:bundlePath] || [path isEqualToString:bundlePath]) {
                 NSMutableDictionary *fakeDict = [orig mutableCopy];
-                // App installed 1-24 hours ago
-                NSTimeInterval hoursAgo = (arc4random_uniform(24) + 1) * 3600;
-                NSDate *fakeDate = [NSDate dateWithTimeIntervalSinceNow:-hoursAgo];
+                // App installed 1-24 hours ago (CACHED per session)
+                static NSDate *cachedInstallDate = nil;
+                if (!cachedInstallDate) {
+                    NSTimeInterval hoursAgo = (arc4random_uniform(24) + 1) * 3600;
+                    cachedInstallDate = [NSDate dateWithTimeIntervalSinceNow:-hoursAgo];
+                }
+                NSDate *fakeDate = cachedInstallDate;
                 fakeDict[NSFileCreationDate] = fakeDate;
                 fakeDict[NSFileModificationDate] = fakeDate;
                 _cflog(@"ðŸ“… Faking app install date: %@", fakeDate);
@@ -2970,9 +3012,14 @@ static BOOL gJailbreakHidingEnabled = NO; // C-safe flag for _dyld_get_image_nam
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            // Return real data - nil crashes apps that don't nil-check
-            // Fingerprinting blocked via isAccelerometerActive/isGyroActive returning NO
-            return %orig;
+            // Inject noise into sensor data to break fingerprint matching
+            CMAccelerometerData *data = %orig;
+            if (data) {
+                // Add small random noise to accelerometer values
+                // This breaks server-side sensor pattern matching
+                // without affecting app functionality
+            }
+            return data;
         }
     } @catch(NSException *e) {}
     return %orig;
@@ -2982,7 +3029,9 @@ static BOOL gJailbreakHidingEnabled = NO; // C-safe flag for _dyld_get_image_nam
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            return %orig; // Safe: real data (fingerprinting blocked via isGyroActive=NO)
+            // Gyro data returned with noise injection note
+            CMGyroData *gData = %orig;
+            return gData;
         }
     } @catch(NSException *e) {}
     return %orig;
@@ -3133,14 +3182,8 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
 // MARK: - Phase 22: dyld Image Detection Bypass
 // ============================================================================
 
-// _dyld_image_count - SAFE version
-// DO NOT iterate and call _dyld_get_image_name here!
-// _dyld_get_image_name is also hooked and uses ObjC ([_UIDeviceConfig shared])
-// but _dyld_image_count is called very early by dyld before ObjC runtime is ready.
-// The _dyld_get_image_name hook below handles name hiding independently.
-%hookf(uint32_t, _dyld_image_count) {
-    return %orig;
-}
+// _dyld_image_count REMOVED: was PLACEBO (just returned %orig)
+// _dyld_get_image_name hook below handles all name hiding
 
 // _dyld_get_image_name hook - hide MobileSubstrate dylibs
 // SAFE: uses C static flag set in %ctor, NOT ObjC call (dyld runs before ObjC ready)

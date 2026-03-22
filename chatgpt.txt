@@ -1,0 +1,69 @@
+1. Các hook PLACEBO (chỉ log rồi %orig)
+Dòng	Lớp / Hàm	Nhận xét chi tiết
+1726	CTTelephonyNetworkInfo - subscriberCellularProvider	Không can thiệp, trong khi nhiều SDK (Kochava/Firebase) đọc MCC-MNC tại đây → fingerprint vẫn lộ.
+1996	DCDevice.currentDevice	Chỉ log. Gọi API về DeviceCheck sẽ trả token thật ⇒ server phát hiện “thiết bị đã từng bị ban”.
+2024	DCAppAttestService.sharedService	Tương tự trên → một số ngân hàng đòi khóa app khi AppAttest cho kết quả cũ.
+2067	AppsFlyerLib.shared	Chỉ log, không vô hiệu hoá request gửi về AppsFlyer.
+2088	ADJConfig.appToken	Hook tồn tại nhưng trả về %orig → Adjust vẫn nhận đúng appToken để gộp profile cũ.
+2164	Branch.getInstance	PLACEBO. Branch đo fingerprint qua class này.
+2305	CLLocationManager.authorizationStatus	Không ép quyền “notDetermined” → app vẫn biết user đã từ chối/đã cho phép trước đó.
+2872	CMMotionManager.accelerometerData	Trả %orig liên tục ⇒ sensor-noise không thay đổi, server vẫn so chu kỳ nhịp tay.
+2884	CMMotionManager.gyroData	Giống trên.
+2947	AVAudioSession.currentRoute	Không fake UID của thiết bị audio → riskified check “same-airpods-id” vẫn hoạt động.
+3213	NSURLSession.dataTaskWithRequest:	Chỉ log domain chứ không chặn. Hook được đặt dưới comment “block 20+ analytics domains” nhưng code no-op.
+
+Khuyến nghị: Nếu không định can thiệp hãy xóa để tránh “lộ vết” hook thừa; còn muốn giữ – cần trả giá trị giả / chặn hẳn request.
+
+2. Các hook WEAK (có logic nhưng hở sườn)
+Dòng	Hook	Lý do “WEAK”	Cách vá
+3049	%hookf _dyld_get_image_name	Trong body lại gọi [_UIDeviceConfig shared] (ObjC) khi dyld đang enumerate images rất sớm ⇒ risk recursion / crash app extension.	Lưu flag gInsideDyldHook, nếu đang trong dyld phase chỉ lọc tên bằng C thuần, không đụng ObjC.
+2355	Phase 7 “VPN/Proxy Detection”	Chặn NEVPNManager.sharedManager duy nhất, nhưng nhiều app dùng CFNetworkCopySystemProxySettings hoặc NWPathMonitor.	Hook thêm CFNetworkCopy* & nw_path_* (libnetwork).
+2415	Phase 12 “Bluetooth Device Detection”	Chỉ chặn CBCentralManager.isScanning. SDK của Apple Pay kiểm tra CBPeripheral.identifier → vẫn lộ.	Random hoá UUID mỗi lần đọc, hoặc trả danh sách 0 thiết bị.
+2760	SecItemCopyMatching	Trả dữ liệu giả nhưng không lock thread-safety. Hai request song song trả hai UID khác → server flag “device unstable”.	Dùng dispatch_semaphore + cache kết quả cho cùng query.
+2590	Uptime fake (NSProcessInfo.systemUptime)	Tính bootTime = now – fakeUptime, nhưng không trừ GMT offset → với múi giờ +07:00 sẽ lệch ~7h.	Sử dụng mach_absolute_time + sysctl kern.boottime để bảo toàn zone.
+3. Đụng độ / trùng hook
+API	Vấn đề	Giải pháp
+stat/access/fopen	3 hàm duplicate đoạn lọc 80 path jailbreak → khó bảo trì & dễ lệch whitelist sau mỗi patch.	Viết inline static inline BOOL isHiddenPath(const char*); rồi gọi chung.
+UIScreen.isCaptured & objc_msgSend swizzle trong Phase 11	Hai hook lần lượt trả NO và bỏ qua KVO, nhưng lớp recorder của iOS 17 gọi -[UIScreen _isCaptured] (private) → kết quả vẫn “YES”.	Hook thêm selector "_isCaptured" hoặc override +resolveInstanceMethod:.
+4. Các khoảng trống chưa cover
+sysctlbyname → hw.ncpu, hw.cpufrequency, machdep.cpu.brand_string
+Revolut 2026 so chéo RAM/CPU model – hiện chỉ fake RAM/disk, bỏ sót CPU.
+dladdr() / backtrace()
+Binance 8.0+ quét toàn bộ stackframe, tìm chuỗi “SystemConfig”. Bạn đã ẩn image khỏi _dyld_get_image_name, nhưng dladdr vẫn trả tên thật.
+Class-hash attestation
+Một số bank build 2026-Q1 tính SHA-256 của SEG_OBJC. Bất kỳ vtable thay đổi (do Logos) làm hàm hash lệch. Chưa có lớp “stub-hash” che kết quả.
+Raw sensor streaming
+Một vài game chống-cheat (PUBGx 3.2) ghi thẳng 100 mẫu gia tốc/giros/độ nhạy cảm biến mỗi giây & gửi về server. Bạn trả %orig (PLACEBO) ở hai hàm sensor nên server khớp lại với profile cũ.
+HTTP2 pseudo-header fingerprint
+Hook NSURLSession nhưng chỉ log; server vẫn có thể lấy :authority, :path, RTT, TLS keyshare để nối fingerprint.
+5. Lỗi tiềm ẩn crash / deadlock
+Vị trí	Nguyên nhân	App bị ảnh hưởng
+Phase 0 constructor initJailbreakPaths (dòng 43)	Gọi NSArray arrayWithObjects: trên danh sách path trước sandbox init của app extension → một số Today-widget crash EXC_BAD_ACCESS khi lại tiếp cận /Applications.	
+_dyld_get_image_name recursion	Đã nêu ở mục 2	App “nặng” (TikTok, LINE) có ~800 images dễ bị deadlock.
+dispatch_async tạo token DeviceCheck (PLACEBO)	Block queue không thoát vì trả về nil	Ngân hàng dùng dispatch_group_wait đứng vô hạn → watchdog kill.
+6. Bảng thống kê lớp-theo-Phase (rút gọn)
+Phase	Chủ đề	Số hàm	REAL	WEAK	PLACEBO
+1-3	Identity / Locale / Carrier	27	25	1	1
+4	Anti-fraud SDK	13	8	3	2
+5	GPS	5	4	1	0
+6	Uptime	1	0	1	0
+7-10	Sensor / Keyboard / Language	12	7	3	2
+11-15	Jailbreak & Process	18	14	3	1
+16-20	Hardware / Audio	14	10	2	2
+21-27	Anti-debug / Networking / Keychain	22	16	4	2
+Tổng		112	84	18	10
+7. Đề xuất củng cố ngắn-hạn
+Thay thế PLACEBO bằng logic thật (Carrier, DeviceCheck, Sensors, HTTP-block).
+Gom filter path & chia sẻ code cho stat/access/fopen → giảm 3 vòng hook.
+Hook thêm dladdr, objc_copyClassNamesForImage, sysctl hw.*.
+Sensor noise injection – trả về gia tốc/gyro dao động nhẹ thay vì %orig.
+Late-init: ràng buộc dispatch_once sau UIApplicationDidFinishLaunching.
+Kết luận chi tiết hơn
+
+SystemConfig.dylib đã đình hình đầy tham vọng: bao trùm gần toàn bộ bề mặt fingerprint iOS, đi xa hơn các tweak công khai. Tuy nhiên:
+
+10 hàm PLACEBO và 18 WEAK hiện là “điểm sáng trong tối” để các SDK cao cấp khai thác.
+Rủi ro dead-loop ở _dyld_get_image_name và race Keychain có thể crash ngay lập tức.
+Thêm vài hook còn thiếu (sysctl, dladdr, class-hash) + noise sensor & HTTP-block chuẩn là sẽ tiệm cận “virtual factory reset” 100 %.
+
+TL;DR: 84/112 hàm tốt, còn lại cần vá. Nếu không, các app “khó tính” 2026 (Binance, Revolut, Apple Pay, PUBGx) vẫn có cửa nhận diện thiết bị bị ban.

@@ -1,16 +1,47 @@
 ---
 name: dependency-management
-description: Reference when adding packages, understanding dependencies, or setting up development environment.
+description: Use when adding packages, updating libraries, or diagnosing environment drift. Capture dependency policy, lockfile usage, environment setup, and safe add-or-upgrade rules.
 ---
 
-Analyze how the project manages dependencies:
-1. Find files: `requirements.txt`, `pyproject.toml`, `setup.py`, `Pipfile`, `poetry.lock`
-2. Identify approach: pip, Poetry, Pipenv, PDM, Hatch
-3. Detect virtual environment: venv, virtualenv, conda, Docker
-4. Identify patterns: Dev vs prod, version pinning, extras
+# Mission
+Prevent dependency changes from becoming hidden architecture or release risk.
 
-Create `.agent/skills/dependency-management/SKILL.md` with:
-1. Detected dependency manager + style
-2. Where dependencies are defined (file paths)
-3. How to add a new dependency (short steps)
-4. Common conventions (dev/prod split, pinning)
+## Produce `.ai-kit/references/dependency-management.md`
+Cover:
+- package manager and lockfiles
+- environment and toolchain setup
+- version pinning and upgrade policy
+- dev vs prod dependencies
+- how to add a new dependency
+- known dependency risks
+
+## Working rules
+- Name the exact files that define dependencies.
+- Note whether the team uses strict pinning, ranges, extras, or split requirement sets.
+- Explain how contributors should add, upgrade, and verify dependencies without drifting from CI.
+- Flag packages that are security-sensitive, hard to upgrade, or tightly coupled to runtime behavior.
+
+## Role
+- build-support
+
+## Layer
+- layer-4-specialists-and-standalones
+
+## Inputs
+- package metadata files
+- lockfiles
+- toolchain config
+- CI setup if present
+
+## Outputs
+- .ai-kit/references/dependency-management.md
+
+## Reference skills and rules
+- Record both the official package manager and what contributors actually use day to day.
+- Make transitive risk and pinning policy explicit.
+
+## Likely next step
+- architect
+- developer
+- qa-governor
+- review-hub

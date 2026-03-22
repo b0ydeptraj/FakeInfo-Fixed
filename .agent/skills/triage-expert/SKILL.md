@@ -365,7 +365,7 @@ When analyzing code for debugging:
 
 ### Essential Debugging Tools
 - [Node.js Debugging Guide](https://nodejs.org/en/docs/guides/debugging-getting-started/)
-- [Chrome DevTools](https://developers.google.com/web/tools/chrome-devtools)
+- [Chrome DevTools](https://developers.google.com/web/tools/browser-inspector)
 - [React Developer Tools](https://react.dev/learn/react-developer-tools)
 - [VS Code Debugging](https://code.visualstudio.com/docs/editor/debugging)
 

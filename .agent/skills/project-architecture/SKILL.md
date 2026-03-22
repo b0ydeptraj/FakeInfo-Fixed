@@ -1,19 +1,45 @@
 ---
 name: project-architecture
-description: Reference this skill when creating new features, or understanding the project's layer organization and data flow patterns.
+description: Use when designing a change, reviewing architectural drift, or implementing code in an unfamiliar area. Analyze the current codebase shape and maintain a living architecture reference.
 ---
 
-Analyze the project's architecture and folder structure then create project-architecture skill. Follow this Instruction:
-1. Use Glob to find all .py files
-2. Identify the architectural pattern:
-* Clean Architecture (domain/application/infrastructure layers)
-* MVC/MVT pattern (Django-style)
-* Hexagonal Architecture (ports and adapters)
-* Modular/Package-based organization
-* Microservices structure
-* Simple script-based organization
-3. Create `.agent/skills/project-architecture/SKILL.md` with:
-1. Actual layer structure project is using
-2. Actual code flow from entry point to data layer
-3. Key modules and their responsibilities
-Keep the `SKILL.md` short and concise, only write 3 points mentioned.
+# Mission
+Build and maintain an accurate map of the current architecture so downstream roles stop guessing.
+
+## Produce `.ai-kit/references/project-architecture.md`
+Cover:
+- entry points and execution flow
+- layer or package structure
+- module responsibilities
+- dependency direction and boundaries
+- architecture drift and hotspots
+- files to mirror when adding new work
+
+## Working rules
+- Prefer observed runtime or code flow over folder names alone.
+- Name boundaries explicitly: controllers, services, repositories, adapters, domain logic, jobs, or scripts.
+- Flag any mismatch between the intended architecture and what the code actually does.
+- Add file paths whenever the reference names a pattern or module.
+
+## Role
+- architecture-support
+
+## Layer
+- layer-4-specialists-and-standalones
+
+## Inputs
+- repository tree
+- .ai-kit/contracts/project-context.md
+- .ai-kit/contracts/architecture.md when available
+
+## Outputs
+- .ai-kit/references/project-architecture.md
+
+## Reference skills and rules
+- Document what the codebase actually does today, not what the team intended six months ago.
+- Include concrete file paths, entrypoints, and dependency direction.
+
+## Likely next step
+- architect
+- developer
+- review-hub

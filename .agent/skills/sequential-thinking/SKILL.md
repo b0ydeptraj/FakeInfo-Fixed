@@ -1,47 +1,43 @@
 ---
 name: sequential-thinking
-description: Use for complex problems requiring step-by-step reasoning with ability to revise, branch, or dynamically adjust scope.
+description: Use when a hub needs structured thought without changing ownership. Stepwise reasoning utility for debugging, planning, or decomposition.
 ---
 
-Create a sequential thinking skill for complex problem-solving:
+# Mission
+Turn a messy question into a short sequence of evidence-backed steps.
 
-Create `.agent/skills/sequential-thinking/SKILL.md` with:
+## Default outputs
+- ordered reasoning steps added to investigation-notes or the active artifact
 
-## When to Use
-- Multi-step analysis or design
-- Debugging complex issues
-- Architecture decisions
-- Refactoring planning
-- Problem with initially unclear scope
+## Typical tasks
+- Decompose the problem into checkpoints.
+- Identify what must be known before acting.
+- Recommend the next most informative test or observation.
 
-## The Process
+## Working rules
+- Keep the sequence short and testable.
+- Tie each step to an artifact or evidence source.
+- Do not claim completion for the lane.
 
-### Structure Each Thought
-```
-Thought 1 of N: "Problem involves X. Need to understand Y first."
-Thought 2 of N: "Analyzing Y reveals Z pattern."
-Thought 3 (revision of 1): "Actually, core issue is W, not X."
-Thought 4 of N: "Solution approach: ..."
-```
+## Role
+- utility-provider
 
-### Core Capabilities
-- **Iterative reasoning**: Break into sequential steps
-- **Dynamic scope**: Adjust total thoughts as understanding evolves
-- **Revision tracking**: Can modify previous conclusions
-- **Branch exploration**: Explore alternative paths from any point
+## Layer
+- layer-3-utility-providers
 
-### When to Revise
-- New information contradicts earlier assumption
-- Better approach discovered
-- Original scope was wrong
+## Inputs
+- active hub or orchestrator request
+- current authoritative artifact
+- only the evidence relevant to this pass
 
-### When to Branch
-- Multiple viable approaches exist
-- Need to explore alternatives before committing
-- Risk/benefit analysis needed
+## Outputs
+- ordered reasoning steps added to investigation-notes or the active artifact
 
-## Tips
-- Start with rough estimate, refine as you progress
-- Express uncertainty explicitly
-- Adjust scope freely - progress visibility matters
-- Stop when conclusion reached
+## Reference skills and rules
+- Break work into explicit steps and checkpoints.
+- Reasoning should support a decision, not become the decision owner.
+
+## Likely next step
+- debug-hub
+- plan-hub
+- fix-hub
