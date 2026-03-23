@@ -41,8 +41,6 @@ static uid_t (*orig_geteuid_ptr)(void) = NULL;
 // C-safe flag for hooks that run before ObjC is ready
 static BOOL gJailbreakHidingEnabled = NO;
 
-// Diagnostics: hook status checked in realtime via _showDiagnostics()
-
 // Keychain hooks
 static OSStatus (*orig_SecItemCopyMatching_ptr)(CFDictionaryRef query, CFTypeRef *result) = NULL;
 static OSStatus (*orig_SecItemAdd_ptr)(CFDictionaryRef attributes, CFTypeRef *result) = NULL;
@@ -516,7 +514,7 @@ void CrashHandler(int sig) {
 
 - (void)handleFourFingerLongPress:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state == UIGestureRecognizerStateBegan) {
-        _cflog(@"Three finger long press detected - showing UI");
+        _cflog(@"Four finger long press detected - showing UI");
         _showConfigUI();
         if (@available(iOS 10.0, *)) {
             UIImpactFeedbackGenerator *feedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleHeavy];
@@ -531,7 +529,7 @@ void CrashHandler(int sig) {
 
 - (void)handleFourFingerShortPress:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state == UIGestureRecognizerStateBegan) {
-        _cflog(@"Three finger short press detected - showing UI");
+        _cflog(@"Four finger short press detected - showing UI");
         _showConfigUI();
         if (@available(iOS 10.0, *)) {
             UIImpactFeedbackGenerator *feedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
@@ -1061,7 +1059,7 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     settings.settings[@"freeDiskSpace"] = [NSString stringWithFormat:@"%llu", freeStorage];
     settings.settings[@"batteryLevel"] = [NSString stringWithFormat:@"%.2f", batteryLevel];
     
-    // Enable ALL toggles for maximum protection
+    // Enable all toggles
     settings.toggles[@"systemVersion"] = @YES;
     settings.toggles[@"deviceModel"] = @YES;
     settings.toggles[@"deviceName"] = @YES;
@@ -1074,18 +1072,18 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
     settings.toggles[@"timezone"] = @YES;
     settings.toggles[@"carrier"] = @YES;
     settings.toggles[@"bootTime"] = @YES;
-    settings.toggles[@"hardwareInfo"] = @YES;   // Screen/RAM/Disk/Touch
-    settings.toggles[@"batteryLevel"] = @YES;   // Battery fake
-    settings.toggles[@"jailbreak"] = @YES;      // Hide JB (CRITICAL)
-    settings.toggles[@"keychain"] = @YES;        // Block old keychain data
-    settings.toggles[@"mcc"] = @YES;             // Mobile Country Code
-    settings.toggles[@"mnc"] = @YES;             // Mobile Network Code
-    settings.toggles[@"gpsLocation"] = @YES;     // GPS spoof
-    settings.toggles[@"screenWidth"] = @YES;     // Screen dimensions
+    settings.toggles[@"hardwareInfo"] = @YES;
+    settings.toggles[@"batteryLevel"] = @YES;
+    settings.toggles[@"jailbreak"] = @YES;      // Hide JB
+    settings.toggles[@"keychain"] = @YES;        // Block keychain
+    settings.toggles[@"mcc"] = @YES;
+    settings.toggles[@"mnc"] = @YES;
+    settings.toggles[@"gpsLocation"] = @YES;
+    settings.toggles[@"screenWidth"] = @YES;
     settings.toggles[@"screenHeight"] = @YES;
     settings.toggles[@"screenScale"] = @YES;
-    settings.toggles[@"physicalMemory"] = @YES;  // RAM
-    settings.toggles[@"totalDiskSpace"] = @YES;  // Disk
+    settings.toggles[@"physicalMemory"] = @YES;
+    settings.toggles[@"totalDiskSpace"] = @YES;
     settings.toggles[@"freeDiskSpace"] = @YES;
     
     _cflog(@"ðŸŽ² Deep Random Applied: %@ (%@) iOS %@ | %@ | %@ | Screen: %@x%@ | RAM: %lluGB | Storage: %lluGB/%lluGB | Battery: %.0f%%", 
@@ -1103,8 +1101,6 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
 }
 
 @end
-
-void _showDiagnostics();
 
 void _setupGR() {
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -1137,7 +1133,7 @@ void _setupGR() {
 
             if (!_gestureProxyInstance) _gestureProxyInstance = [[_UIGestureProxy alloc] init];
 
-            // Removed triple-finger double-tap for settings (shake to open instead)
+            // Triple-finger double-tap removed (shake to open settings instead)
 
             if (!fourFingerLongPress) {
                 fourFingerLongPress = [[UILongPressGestureRecognizer alloc] initWithTarget:_gestureProxyInstance action:@selector(handleFourFingerLongPress:)];
@@ -1171,17 +1167,16 @@ void _showDiagnostics() {
             _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
             NSMutableString *report = [NSMutableString string];
             
-            // === HOOK STATUS ===
             [report appendString:@"=== HOOK STATUS ===\n\n"];
             
             NSArray *keys = @[@"deviceModel",@"systemVersion",@"identifierForVendor",@"idfa",
                               @"jailbreak",@"keychain",@"hardwareInfo",@"wifiIP",
                               @"locale",@"timezone",@"carrier",@"mcc",@"mnc",
                               @"bootTime",@"darwinVersion",@"batteryLevel",@"gpsLocation",@"bundleVersion"];
-            NSArray *names = @[@"Device Model",@"iOS Version",@"IDFV (UUID)",@"IDFA (Ad ID)",
-                               @"Hide Jailbreak",@"Block Keychain",@"Hardware (Screen/RAM)",@"WiFi IP",
-                               @"Locale/Language",@"Timezone",@"Carrier Name",@"MCC (Country)",@"MNC (Network)",
-                               @"Boot Time",@"Darwin Version",@"Battery Level",@"GPS Location",@"Build Version"];
+            NSArray *names = @[@"Device Model",@"iOS Version",@"IDFV",@"IDFA",
+                               @"Hide JB",@"Block Keychain",@"Hardware",@"WiFi IP",
+                               @"Locale",@"Timezone",@"Carrier",@"MCC",@"MNC",
+                               @"Boot Time",@"Darwin",@"Battery",@"GPS",@"Build"];
             
             int total = (int)keys.count;
             int active = 0;
@@ -1192,57 +1187,32 @@ void _showDiagnostics() {
                 if (on) {
                     active++;
                     [report appendFormat:@"ON  %@\n", names[i]];
-                } else {
-                    // Critical hooks warning
-                    if (i < 7) { // First 7 are critical/high
-                        [report appendFormat:@"OFF %@ !!!\n", names[i]];
-                        critical_off++;
-                    }
+                } else if (i < 7) {
+                    [report appendFormat:@"OFF %@ !!!\n", names[i]];
+                    critical_off++;
                 }
             }
             
-            [report appendFormat:@"\n=== RISK: %d/%d active ===\n", active, total];
+            [report appendFormat:@"\n=== %d/%d active ===\n", active, total];
             if (critical_off > 0) {
                 [report appendFormat:@"DANGER: %d critical OFF!\n", critical_off];
             } else {
-                [report appendString:@"All critical hooks active\n"];
+                [report appendString:@"All critical active\n"];
             }
             
-            // Detection vectors - check if C hooks are installed
+            // C hooks status
             [report appendString:@"\n=== C HOOKS ===\n"];
+            [report appendFormat:@"%@ sysctlbyname\n", orig_sysctlbyname_ptr ? @"OK" : @"--"];
+            [report appendFormat:@"%@ stat/access/fopen\n", orig_stat_ptr ? @"OK" : @"--"];
+            [report appendFormat:@"%@ ptrace\n", orig_ptrace ? @"OK" : @"--"];
+            [report appendFormat:@"%@ dladdr\n", orig_dladdr_ptr ? @"OK" : @"--"];
+            [report appendFormat:@"%@ dyld hiding\n", gJailbreakHidingEnabled ? @"OK" : @"--"];
             
-            // Check stored orig pointers (set by MSHookFunction in %ctor)
-            NSArray *hookNames = @[@"sysctlbyname",@"stat",@"ptrace",@"dladdr",@"strcmp",@"dlopen",@"getuid",@"dyld hiding"];
-            BOOL hookStatus[] = {
-                orig_sysctlbyname_ptr != NULL,
-                orig_stat_ptr != NULL,
-                orig_ptrace != NULL,
-                orig_dladdr_ptr != NULL,
-                orig_strcmp_ptr != NULL,
-                orig_dlopen_ptr != NULL,
-                orig_getuid_ptr != NULL,
-                gJailbreakHidingEnabled
-            };
-            
-            for (int i = 0; i < 8; i++) {
-                [report appendFormat:@"%@ %@\n", hookStatus[i] ? @"OK" : @"--", hookNames[i]];
-            }
-            
-            // Show as scrollable alert
             UIAlertController *alert = [UIAlertController
-                alertControllerWithTitle:@"Hook Diagnostics"
+                alertControllerWithTitle:@"Diagnostics"
                 message:report
                 preferredStyle:UIAlertControllerStyleAlert];
-            
             [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-            
-            // Add "Fix All" button if something is off
-            if (critical_off > 0) {
-                [alert addAction:[UIAlertAction actionWithTitle:@"Enable All Hooks" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
-                    [(id)cfg performSelector:@selector(applyRandomConfig)];
-                    _cflog(@"All hooks enabled via diagnostics");
-                }]];
-            }
             
             UIViewController *rootVC = nil;
             if (@available(iOS 13.0, *)) {
@@ -1253,12 +1223,9 @@ void _showDiagnostics() {
                     }
                 }
             }
-            if (!rootVC) {
-                rootVC = [UIApplication sharedApplication].keyWindow.rootViewController;
-            }
+            if (!rootVC) rootVC = [UIApplication sharedApplication].keyWindow.rootViewController;
             while (rootVC.presentedViewController) rootVC = rootVC.presentedViewController;
             if (rootVC) [rootVC presentViewController:alert animated:YES completion:nil];
-            
         } @catch(NSException *e) {
             _cflog(@"Diagnostics error: %@", e.reason);
         }
@@ -1382,6 +1349,24 @@ int _sys_ctl_handler(const char *name, void *oldp, size_t *oldlenp, void *newp, 
             if (strcmp(name, "hw.cpusubtype") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
                 *(int *)oldp = 2; // CPU_SUBTYPE_ARM64E
                 return 0;
+            }
+        }
+        // CPU/hardware info
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            if (strcmp(name, "hw.ncpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+                *(int *)oldp = 6; return 0;
+            }
+            if (strcmp(name, "hw.physicalcpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+                *(int *)oldp = 6; return 0;
+            }
+            if (strcmp(name, "hw.logicalcpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+                *(int *)oldp = 6; return 0;
+            }
+            if (strcmp(name, "hw.cputype") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+                *(int *)oldp = 16777228; return 0; // CPU_TYPE_ARM64
+            }
+            if (strcmp(name, "hw.cpusubtype") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+                *(int *)oldp = 2; return 0; // CPU_SUBTYPE_ARM64E
             }
         }
         // Boot time configuration
@@ -1514,7 +1499,7 @@ uid_t _get_euid_handler(void) {
 int _fs_stat_handler(const char *path, struct stat *buf) {
     _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && path) {
-        if (strstr(path, "Cydia") || strstr(path, "bash") || strstr(path, "apt") || strstr(path, "MobileSubstrate")) {
+        if (_isJailbreakPath(path)) {
             errno = ENOENT;
             return -1;
         }
@@ -1526,7 +1511,7 @@ int _fs_stat_handler(const char *path, struct stat *buf) {
 int _fs_access_handler(const char *path, int amode) {
     _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && path) {
-        if (strstr(path, "Cydia") || strstr(path, "bash") || strstr(path, "apt") || strstr(path, "MobileSubstrate")) {
+        if (_isJailbreakPath(path)) {
             return -1;
         }
     }
@@ -1537,7 +1522,7 @@ int _fs_access_handler(const char *path, int amode) {
 FILE* _fs_open_handler(const char *path, const char *mode) {
     _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && path) {
-        if (strstr(path, "Cydia") || strstr(path, "bash") || strstr(path, "apt") || strstr(path, "MobileSubstrate")) {
+        if (_isJailbreakPath(path)) {
             return NULL;
         }
     }
