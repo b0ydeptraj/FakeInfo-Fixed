@@ -3344,6 +3344,46 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
 }
 
 // ============================================================================
+// MARK: - Phase 22b: Safe dlopen hook (whitelist approach)
+// Only blocks loading of KNOWN jailbreak libraries, allows everything else
+// Unlike global MSHookFunction, %hookf is Logos-managed = safe timing
+// ============================================================================
+%hookf(void*, dlopen, const char *path, int mode) {
+    if (gJailbreakHidingEnabled && path) {
+        // Only block specific JB libraries — NOT all loads
+        if (strstr(path, "MobileSubstrate") ||
+            strstr(path, "substrate") ||
+            strstr(path, "SubstrateLoader") ||
+            strstr(path, "cycript") ||
+            strstr(path, "frida") ||
+            strstr(path, "libhooker")) {
+            // Return NULL = library not found
+            return NULL;
+        }
+    }
+    return %orig(path, mode);
+}
+
+// ============================================================================
+// MARK: - Phase 22c: Safe getuid/geteuid hook
+// Jailbroken rootful devices run as uid=0 (root), non-JB = uid=501 (mobile)
+// %hookf = Logos-managed, safe timing (no early-crash like MSHookFunction)
+// ============================================================================
+%hookf(uid_t, getuid) {
+    if (gJailbreakHidingEnabled) {
+        return 501; // mobile user (non-root)
+    }
+    return %orig;
+}
+
+%hookf(uid_t, geteuid) {
+    if (gJailbreakHidingEnabled) {
+        return 501; // mobile user (non-root)
+    }
+    return %orig;
+}
+
+// ============================================================================
 // MARK: - Phase 23: (sandbox_check removed - not publicly linked)
 // ============================================================================
 // Note: sandbox_check is a private function and cannot be hooked with %hookf
