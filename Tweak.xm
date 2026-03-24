@@ -1609,6 +1609,29 @@ uid_t _get_euid_handler(void) {
 
 
 
+// statfs hook â€” disk space must match NSFileManager fake values
+int _statfs_handler(const char *path, struct statfs *buf) {
+    int ret = orig_statfs_ptr ? orig_statfs_ptr(path, buf) : -1;
+    if (ret != 0) return ret;
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSNumber *totalDisk = [settings valueForKey:@"totalDiskSpace"];
+            NSNumber *freeDisk = [settings valueForKey:@"freeDiskSpace"];
+            if (totalDisk && freeDisk && buf) {
+                unsigned long long total = [totalDisk unsignedLongLongValue];
+                unsigned long long freeSpace = [freeDisk unsignedLongLongValue];
+                if (buf->f_bsize > 0) {
+                    buf->f_blocks = (uint64_t)(total / buf->f_bsize);
+                    buf->f_bfree = (uint64_t)(freeSpace / buf->f_bsize);
+                    buf->f_bavail = buf->f_bfree;
+                }
+            }
+        }
+    } @catch(NSException *e) {}
+    return ret;
+}
+
 int _fs_stat_handler(const char *path, struct stat *buf) {
     _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && path) {
@@ -3104,30 +3127,7 @@ static void _fakeDidUpdateLocations(id self, SEL _cmd, CLLocationManager *manage
             if (ptr_access) MSHookFunction(ptr_access, (void *)&_fs_access_handler, (void **)&orig_access_ptr);
             if (ptr_fopen) MSHookFunction(ptr_fopen, (void *)&_fs_open_handler, (void **)&orig_fopen_ptr);
 
-            // statfs hook â€” disk space must match NSFileManager fake values
-int _statfs_handler(const char *path, struct statfs *buf) {
-    int ret = orig_statfs_ptr ? orig_statfs_ptr(path, buf) : -1;
-    if (ret != 0) return ret;
-    @try {
-        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            NSNumber *totalDisk = [settings valueForKey:@"totalDiskSpace"];
-            NSNumber *freeDisk = [settings valueForKey:@"freeDiskSpace"];
-            if (totalDisk && freeDisk && buf) {
-                unsigned long long total = [totalDisk unsignedLongLongValue];
-                unsigned long long freeSpace = [freeDisk unsignedLongLongValue];
-                if (buf->f_bsize > 0) {
-                    buf->f_blocks = (uint64_t)(total / buf->f_bsize);
-                    buf->f_bfree = (uint64_t)(freeSpace / buf->f_bsize);
-                    buf->f_bavail = buf->f_bfree;
-                }
-            }
-        }
-    } @catch(NSException *e) {}
-    return ret;
-}
 
-// sysctl by OID number (apps bypass sysctlbyname)
             void *ptr_sysctl = dlsym(handle, "sysctl");
             if (ptr_sysctl) MSHookFunction(ptr_sysctl, (void *)&_sys_ctl_oid_handler, (void **)&orig_sysctl_ptr);
             
@@ -3435,68 +3435,7 @@ int _statfs_handler(const char *path, struct statfs *buf) {
 }
 %end
 
-// MARK: - Accelerometer/Gyro noise for behavioral fingerprinting
-%hook CMMotionManager
-- (CMAccelerometerData *)accelerometerData {
-    @try {
-        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            // Inject noise into sensor data to break fingerprint matching
-            CMAccelerometerData *data = %orig;
-            if (data) {
-                // Add small random noise to accelerometer values
-                // This breaks server-side sensor pattern matching
-                // without affecting app functionality
-            }
-            return data;
-        }
-    } @catch(NSException *e) {}
-    return %orig;
-}
-
-- (CMGyroData *)gyroData {
-    @try {
-        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            // Gyro data returned with noise injection note
-            CMGyroData *gData = %orig;
-            return gData;
-        }
-    } @catch(NSException *e) {}
-    return %orig;
-}
-
-- (BOOL)isAccelerometerActive {
-    @try {
-        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-        if ([settings isEnabled:@"hardwareInfo"]) return NO;
-    } @catch(NSException *e) {}
-    return %orig;
-}
-
-- (BOOL)isGyroActive {
-    @try {
-        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-        if ([settings isEnabled:@"hardwareInfo"]) return NO;
-    } @catch(NSException *e) {}
-    return %orig;
-}
-%end
-
-// MARK: - Device motion timestamp normalization
-%hook CMDeviceMotion
-- (NSTimeInterval)timestamp {
-    @try {
-        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            // Add small jitter to prevent timing-based fingerprinting
-            NSTimeInterval orig = %orig;
-            return orig + (arc4random_uniform(10) / 10000.0);
-        }
-    } @catch(NSException *e) {}
-    return %orig;
-}
-%end
+// MARK: - CMMotionManager/CMDeviceMotion hooks moved to Phase 8b above
 
 // ============================================================================
 // MARK: - Phase 19-20: Screen/Audio Fingerprinting (added to existing hooks)
