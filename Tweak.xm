@@ -1608,30 +1608,6 @@ uid_t _get_euid_handler(void) {
 }
 
 
-
-// statfs hook â€” disk space must match NSFileManager fake values
-int _statfs_handler(const char *path, struct statfs *buf) {
-    int ret = orig_statfs_ptr ? orig_statfs_ptr(path, buf) : -1;
-    if (ret != 0) return ret;
-    @try {
-        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            NSNumber *totalDisk = [settings valueForKey:@"totalDiskSpace"];
-            NSNumber *freeDisk = [settings valueForKey:@"freeDiskSpace"];
-            if (totalDisk && freeDisk && buf) {
-                unsigned long long total = [totalDisk unsignedLongLongValue];
-                unsigned long long freeSpace = [freeDisk unsignedLongLongValue];
-                if (buf->f_bsize > 0) {
-                    buf->f_blocks = (uint64_t)(total / buf->f_bsize);
-                    buf->f_bfree = (uint64_t)(freeSpace / buf->f_bsize);
-                    buf->f_bavail = buf->f_bfree;
-                }
-            }
-        }
-    } @catch(NSException *e) {}
-    return ret;
-}
-
 int _fs_stat_handler(const char *path, struct stat *buf) {
     _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && path) {
