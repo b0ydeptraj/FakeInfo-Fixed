@@ -22,6 +22,8 @@
 #import <CoreLocation/CoreLocation.h>
 #import <CoreMotion/CoreMotion.h>
 #import <mach-o/dyld.h>
+#include <sys/mount.h>
+#include <net/if_dl.h>
 #import <unistd.h>
 
 // MARK: - Original Function Pointers (CRITICAL FIX)
@@ -31,6 +33,8 @@ static int (*orig_getifaddrs_ptr)(struct ifaddrs **) = NULL;
 static int (*orig_stat_ptr)(const char *, struct stat *) = NULL;
 static int (*orig_access_ptr)(const char *, int) = NULL;
 static FILE* (*orig_fopen_ptr)(const char *, const char *) = NULL;
+static int (*orig_sysctl_ptr)(int *, u_int, void *, size_t *, void *, size_t) = NULL;
+static int (*orig_statfs_ptr)(const char *, struct statfs *) = NULL;
 
 // New hooks: strcmp, dlopen, getuid, geteuid
 static int (*orig_strcmp_ptr)(const char *, const char *) = NULL;
@@ -1368,6 +1372,30 @@ int _sys_ctl_handler(const char *name, void *oldp, size_t *oldlenp, void *newp, 
             if (strcmp(name, "hw.cpusubtype") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
                 *(int *)oldp = 2; return 0; // CPU_SUBTYPE_ARM64E
             }
+            if (strcmp(name, "hw.cpufamily") == 0 && oldp && oldlenp && *oldlenp >= sizeof(uint32_t)) {
+                // Map model to CPU family
+                NSString *model = [settings valueForKey:@"deviceModel"];
+                uint32_t family = 0xe07c4c93; // CPUFAMILY_ARM_MONSOON_MISTRAL (A11, default)
+                if (model) {
+                    if ([model hasPrefix:@"iPhone17,"]) family = 0xda33d83d; // A18 Pro
+                    else if ([model hasPrefix:@"iPhone16,"]) family = 0x5f4dea93; // A17 Pro
+                    else if ([model hasPrefix:@"iPhone15,"]) family = 0xfa33415e; // A16
+                    else if ([model hasPrefix:@"iPhone14,"]) family = 0x8765edea; // A15
+                    else if ([model hasPrefix:@"iPhone13,"]) family = 0x1b588bb3; // A14
+                    else if ([model hasPrefix:@"iPhone12,"]) family = 0x462504d2; // A13
+                }
+                *(uint32_t *)oldp = family;
+                *oldlenp = sizeof(uint32_t);
+                return 0;
+            }
+            if (strcmp(name, "hw.memsize") == 0 && oldp && oldlenp && *oldlenp >= sizeof(uint64_t)) {
+                NSNumber *ram = [settings valueForKey:@"physicalMemory"];
+                if (ram) {
+                    *(uint64_t *)oldp = [ram unsignedLongLongValue];
+                    *oldlenp = sizeof(uint64_t);
+                    return 0;
+                }
+            }
         }
         // Boot time configuration
         if ([settings isEnabled:@"bootTime"] && strcmp(name, "kern.boottime") == 0) {
@@ -1390,6 +1418,73 @@ int _sys_ctl_handler(const char *name, void *oldp, size_t *oldlenp, void *newp, 
     // FIXED: Call original via saved pointer
     if (orig_sysctlbyname_ptr) return orig_sysctlbyname_ptr(name, oldp, oldlenp, newp, newlen);
     return -1;
+}
+
+// statfs hook â€” disk space must match NSFileManager fake values
+int _statfs_handler(const char *path, struct statfs *buf) {
+    int ret = orig_statfs_ptr ? orig_statfs_ptr(path, buf) : -1;
+    if (ret != 0) return ret;
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSNumber *totalDisk = [settings valueForKey:@"totalDiskSpace"];
+            NSNumber *freeDisk = [settings valueForKey:@"freeDiskSpace"];
+            if (totalDisk && freeDisk && buf) {
+                unsigned long long total = [totalDisk unsignedLongLongValue];
+                unsigned long long freeSpace = [freeDisk unsignedLongLongValue];
+                if (buf->f_bsize > 0) {
+                    buf->f_blocks = (uint64_t)(total / buf->f_bsize);
+                    buf->f_bfree = (uint64_t)(freeSpace / buf->f_bsize);
+                    buf->f_bavail = buf->f_bfree;
+                }
+            }
+        }
+    } @catch(NSException *e) {}
+    return ret;
+}
+
+// sysctl by OID number â€” apps bypass sysctlbyname by using raw OID
+int _sys_ctl_oid_handler(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
+    @try {
+        if (namelen >= 2 && name[0] == CTL_HW) {
+            _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+            
+            // HW_MEMSIZE (RAM) â€” must match NSProcessInfo.physicalMemory
+            if (name[1] == HW_MEMSIZE && [settings isEnabled:@"hardwareInfo"]) {
+                NSNumber *ram = [settings valueForKey:@"physicalMemory"];
+                if (ram && oldp && oldlenp) {
+                    if (*oldlenp >= sizeof(uint64_t)) {
+                        *(uint64_t *)oldp = [ram unsignedLongLongValue];
+                        *oldlenp = sizeof(uint64_t);
+                        return 0;
+                    }
+                }
+            }
+            
+            // HW_NCPU
+            if (name[1] == HW_NCPU && [settings isEnabled:@"hardwareInfo"] && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+                *(int *)oldp = 6;
+                *oldlenp = sizeof(int);
+                return 0;
+            }
+            
+            // HW_MACHINE
+            if (name[1] == HW_MACHINE && [settings isEnabled:@"deviceModel"] && oldp && oldlenp) {
+                const char *val = [[settings valueForKey:@"deviceModel"] UTF8String];
+                if (val) {
+                    size_t len = strlen(val) + 1;
+                    if (*oldlenp >= len) {
+                        strcpy((char *)oldp, val);
+                        *oldlenp = len;
+                        return 0;
+                    }
+                }
+            }
+        }
+    } @catch(NSException *e) {
+        _cflog(@"[CRASH][sysctl OID]: %@", e.reason);
+    }
+    return orig_sysctl_ptr ? orig_sysctl_ptr(name, namelen, oldp, oldlenp, newp, newlen) : -1;
 }
 
 int _sys_uname_handler(struct utsname *name) {
@@ -1429,10 +1524,28 @@ int _net_if_handler(struct ifaddrs **ifap) {
         @try {
             struct ifaddrs *ifa = *ifap;
             while (ifa) {
-                if (ifa->ifa_addr && ifa->ifa_addr->sa_family == AF_INET && strcmp(ifa->ifa_name, "en0") == 0) {
-                    struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
-                    const char* fakeIP = [[settings valueForKey:@"wifiIP"] UTF8String];
-                    inet_pton(AF_INET, fakeIP, &(addr->sin_addr));
+                if (ifa->ifa_addr && strcmp(ifa->ifa_name, "en0") == 0) {
+                    // Fake IPv4 address
+                    if (ifa->ifa_addr->sa_family == AF_INET) {
+                        struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
+                        const char* fakeIP = [[settings valueForKey:@"wifiIP"] UTF8String];
+                        inet_pton(AF_INET, fakeIP, &(addr->sin_addr));
+                    }
+                    // Fake MAC address (AF_LINK) â€” critical for device tracking
+                    if (ifa->ifa_addr->sa_family == AF_LINK) {
+                        struct sockaddr_dl *sdl = (struct sockaddr_dl *)ifa->ifa_addr;
+                        if (sdl->sdl_alen == 6) {
+                            // Generate stable fake MAC from profile seed
+                            NSString *seed = [settings valueForKey:@"identifierForVendor"] ?: @"default";
+                            const char *seedC = [seed UTF8String];
+                            size_t seedLen = strlen(seedC);
+                            uint8_t *mac = (uint8_t *)LLADDR(sdl);
+                            for (int i = 0; i < 6; i++) {
+                                mac[i] = (uint8_t)((seedC[i % seedLen] * 31 + i * 17 + 0xAB) & 0xFF);
+                            }
+                            mac[0] = (mac[0] & 0xFE) | 0x02; // Local, unicast
+                        }
+                    }
                 }
                 ifa = ifa->ifa_next;
             }
@@ -1944,10 +2057,21 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
     return %orig;
 }
 - (NSString *)currentRadioAccessTechnology {
-    // Normalize radio tech to common LTE
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"carrier"]) {
+            // Map model to radio tech: iPhone 12+ (model num >= 13) = 5G
+            NSString *model = [settings valueForKey:@"deviceModel"];
+            if (model) {
+                NSString *numStr = [model stringByReplacingOccurrencesOfString:@"iPhone" withString:@""];
+                NSArray *parts = [numStr componentsSeparatedByString:@","];
+                if (parts.count > 0) {
+                    NSInteger modelNum = [parts[0] integerValue];
+                    if (modelNum >= 13) { // iPhone 12 series = iPhone13,x
+                        return @"CTRadioAccessTechnologyNRNSA"; // 5G
+                    }
+                }
+            }
             return @"CTRadioAccessTechnologyLTE";
         }
     } @catch(NSException *e) {}
@@ -2792,6 +2916,46 @@ OSStatus _sec_del_handler(CFDictionaryRef query) {
 }
 %end
 
+// MARK: - Phase 5b: CLLocationManager Delegate (fake GPS in delegate too)
+static IMP _origDidUpdateLocations = NULL;
+
+static void _fakeDidUpdateLocations(id self, SEL _cmd, CLLocationManager *manager, NSArray<CLLocation *> *locations) {
+    @try {
+        _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
+        if ([cfg isEnabled:@"gpsLocation"]) {
+            NSString *latStr = [cfg valueForKey:@"gpsLatitude"];
+            NSString *lonStr = [cfg valueForKey:@"gpsLongitude"];
+            if (latStr && lonStr) {
+                double lat = [latStr doubleValue] + (arc4random_uniform(100) - 50) / 100000.0;
+                double lon = [lonStr doubleValue] + (arc4random_uniform(100) - 50) / 100000.0;
+                CLLocation *fakeLocation = [[CLLocation alloc] initWithLatitude:lat longitude:lon];
+                NSArray *fakeLocations = @[fakeLocation];
+                if (_origDidUpdateLocations) {
+                    ((void(*)(id, SEL, CLLocationManager *, NSArray *))_origDidUpdateLocations)(self, _cmd, manager, fakeLocations);
+                }
+                return;
+            }
+        }
+    } @catch(NSException *e) {}
+    if (_origDidUpdateLocations) {
+        ((void(*)(id, SEL, CLLocationManager *, NSArray *))_origDidUpdateLocations)(self, _cmd, manager, locations);
+    }
+}
+
+%hook CLLocationManager
+- (void)setDelegate:(id)delegate {
+    %orig;
+    if (delegate) {
+        SEL locSel = @selector(locationManager:didUpdateLocations:);
+        Method m = class_getInstanceMethod([delegate class], locSel);
+        if (m && !_origDidUpdateLocations) {
+            _origDidUpdateLocations = method_setImplementation(m, (IMP)_fakeDidUpdateLocations);
+            _cflog(@"CLLocationManager delegate swizzled on: %@", NSStringFromClass([delegate class]));
+        }
+    }
+}
+%end
+
 // MARK: - Tweak Initialization (MERGED - single %ctor)
 %ctor {
     @autoreleasepool {
@@ -2832,6 +2996,37 @@ OSStatus _sec_del_handler(CFDictionaryRef query) {
             if (ptr_stat) MSHookFunction(ptr_stat, (void *)&_fs_stat_handler, (void **)&orig_stat_ptr);
             if (ptr_access) MSHookFunction(ptr_access, (void *)&_fs_access_handler, (void **)&orig_access_ptr);
             if (ptr_fopen) MSHookFunction(ptr_fopen, (void *)&_fs_open_handler, (void **)&orig_fopen_ptr);
+
+            // statfs hook â€” disk space must match NSFileManager fake values
+int _statfs_handler(const char *path, struct statfs *buf) {
+    int ret = orig_statfs_ptr ? orig_statfs_ptr(path, buf) : -1;
+    if (ret != 0) return ret;
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            NSNumber *totalDisk = [settings valueForKey:@"totalDiskSpace"];
+            NSNumber *freeDisk = [settings valueForKey:@"freeDiskSpace"];
+            if (totalDisk && freeDisk && buf) {
+                unsigned long long total = [totalDisk unsignedLongLongValue];
+                unsigned long long freeSpace = [freeDisk unsignedLongLongValue];
+                if (buf->f_bsize > 0) {
+                    buf->f_blocks = (uint64_t)(total / buf->f_bsize);
+                    buf->f_bfree = (uint64_t)(freeSpace / buf->f_bsize);
+                    buf->f_bavail = buf->f_bfree;
+                }
+            }
+        }
+    } @catch(NSException *e) {}
+    return ret;
+}
+
+// sysctl by OID number (apps bypass sysctlbyname)
+            void *ptr_sysctl = dlsym(handle, "sysctl");
+            if (ptr_sysctl) MSHookFunction(ptr_sysctl, (void *)&_sys_ctl_oid_handler, (void **)&orig_sysctl_ptr);
+            
+            // statfs for disk space consistency
+            void *ptr_statfs = dlsym(handle, "statfs");
+            if (ptr_statfs) MSHookFunction(ptr_statfs, (void *)&_statfs_handler, (void **)&orig_statfs_ptr);
 
             // Keychain hooks for fresh device simulation
             void *ptr_SecItemCopyMatching = dlsym(handle, "SecItemCopyMatching");
@@ -3304,7 +3499,26 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
 // MARK: - Phase 22: dyld Image Detection Bypass
 // ============================================================================
 
-// _dyld_image_count REMOVED: was PLACEBO (just returned %orig)
+// _dyld_image_count â€” subtract injected JB images (NOT placebo anymore)
+%hookf(uint32_t, _dyld_image_count) {
+    uint32_t count = %orig;
+    if (gJailbreakHidingEnabled) {
+        // Count JB-related images to subtract
+        uint32_t jbCount = 0;
+        for (uint32_t i = 0; i < count; i++) {
+            const char *name = _dyld_get_image_name(i);
+            if (name && (strstr(name, "MobileSubstrate") || strstr(name, "substrate") ||
+                         strstr(name, "SubstrateLoader") || strstr(name, "TweakInject") ||
+                         strstr(name, "Inject") || strstr(name, "Cycript") ||
+                         strstr(name, "libhooker") || strstr(name, "substitute"))) {
+                jbCount++;
+            }
+        }
+        return count - jbCount;
+    }
+    return count;
+}
+// _dyld_image_count FIXED: now subtracts JB images (just returned %orig)
 // _dyld_get_image_name hook below handles all name hiding
 
 // _dyld_get_image_name hook - hide MobileSubstrate dylibs
