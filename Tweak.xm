@@ -3521,8 +3521,8 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
         return count - 3; // Typical: substrate + tweakloader + this dylib
     }
     return count;
-} (just returned %orig)
-// _dyld_get_image_name hook below handles all name hiding
+}
+
 
 // _dyld_get_image_name hook - hide MobileSubstrate dylibs
 // SAFE: uses C static flag set in %ctor, NOT ObjC call (dyld runs before ObjC ready)
