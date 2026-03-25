@@ -3104,12 +3104,11 @@ static void _fakeDidUpdateLocations(id self, SEL _cmd, CLLocationManager *manage
             if (ptr_fopen) MSHookFunction(ptr_fopen, (void *)&_fs_open_handler, (void **)&orig_fopen_ptr);
 
 
-            void *ptr_sysctl = dlsym(handle, "sysctl");
-            if (ptr_sysctl) MSHookFunction(ptr_sysctl, (void *)&_sys_ctl_oid_handler, (void **)&orig_sysctl_ptr);
-            
-            // statfs for disk space consistency
-            void *ptr_statfs = dlsym(handle, "statfs");
-            if (ptr_statfs) MSHookFunction(ptr_statfs, (void *)&_statfs_handler, (void **)&orig_statfs_ptr);
+            // NOTE: sysctl() OID and statfs() hooks REMOVED â€” they crash because
+            // sysctl() is called by ObjC runtime millions of times (like strcmp)
+            // statfs() is called during early app startup
+            // Coverage: sysctlbyname already covers hw.memsize/hw.ncpu/hw.cputype
+            //           NSFileManager already covers disk space
 
             // Keychain hooks for fresh device simulation
             void *ptr_SecItemCopyMatching = dlsym(handle, "SecItemCopyMatching");
@@ -3143,18 +3142,10 @@ static void _fakeDidUpdateLocations(id self, SEL _cmd, CLLocationManager *manage
         void *ptr_dladdr = (void *)MSFindSymbol(NULL, "_dladdr");
         if (ptr_dladdr) MSHookFunction(ptr_dladdr, (void *)_dl_addr_handler, (void **)&orig_dladdr_ptr);
         
-        // New hooks: strcmp, dlopen, getuid, geteuid
-        void *ptr_strcmp = (void *)MSFindSymbol(NULL, "_strcmp");
-        if (ptr_strcmp) MSHookFunction(ptr_strcmp, (void *)_str_cmp_handler, (void **)&orig_strcmp_ptr);
-        
-        void *ptr_dlopen = (void *)MSFindSymbol(NULL, "_dlopen");
-        if (ptr_dlopen) MSHookFunction(ptr_dlopen, (void *)_dl_open_handler, (void **)&orig_dlopen_ptr);
-        
-        void *ptr_getuid = (void *)MSFindSymbol(NULL, "_getuid");
-        if (ptr_getuid) MSHookFunction(ptr_getuid, (void *)_get_uid_handler, (void **)&orig_getuid_ptr);
-        
-        void *ptr_geteuid = (void *)MSFindSymbol(NULL, "_geteuid");
-        if (ptr_geteuid) MSHookFunction(ptr_geteuid, (void *)_get_euid_handler, (void **)&orig_geteuid_ptr);
+        // NOTE: strcmp/dlopen/getuid/geteuid MSHookFunction REMOVED
+        // strcmp â€” not needed, stat/access/fopen/_isJailbreakPath covers JB detection
+        // dlopen â€” safe %hookf version exists below (whitelist-based)
+        // getuid/geteuid â€” safe %hookf version exists below (returns 501)
         
         _cflog(@"All hooks installed (merged)");
         
@@ -3521,26 +3512,16 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
 // MARK: - Phase 22: dyld Image Detection Bypass
 // ============================================================================
 
-// _dyld_image_count â€” subtract injected JB images (NOT placebo anymore)
+// _dyld_image_count â€” subtract a fixed number of JB images
+// NOTE: Cannot call _dyld_get_image_name here (it's hooked = circular crash)
+// Instead, subtract a safe fixed count based on typical JB injection
 %hookf(uint32_t, _dyld_image_count) {
     uint32_t count = %orig;
-    if (gJailbreakHidingEnabled) {
-        // Count JB-related images to subtract
-        uint32_t jbCount = 0;
-        for (uint32_t i = 0; i < count; i++) {
-            const char *name = _dyld_get_image_name(i);
-            if (name && (strstr(name, "MobileSubstrate") || strstr(name, "substrate") ||
-                         strstr(name, "SubstrateLoader") || strstr(name, "TweakInject") ||
-                         strstr(name, "Inject") || strstr(name, "Cycript") ||
-                         strstr(name, "libhooker") || strstr(name, "substitute"))) {
-                jbCount++;
-            }
-        }
-        return count - jbCount;
+    if (gJailbreakHidingEnabled && count > 3) {
+        return count - 3; // Typical: substrate + tweakloader + this dylib
     }
     return count;
-}
-// _dyld_image_count FIXED: now subtracts JB images (just returned %orig)
+} (just returned %orig)
 // _dyld_get_image_name hook below handles all name hiding
 
 // _dyld_get_image_name hook - hide MobileSubstrate dylibs
