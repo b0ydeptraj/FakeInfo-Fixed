@@ -22,7 +22,14 @@
 #import <CoreLocation/CoreLocation.h>
 #import <CoreMotion/CoreMotion.h>
 #import <mach-o/dyld.h>
-#import <IOKit/IOKitLib.h>
+// IOKit — manual declarations (avoid Theos header C++ module errors)
+typedef mach_port_t io_object_t;
+typedef io_object_t io_registry_entry_t;
+typedef uint32_t IOOptionBits;
+extern CFTypeRef IORegistryEntryCreateCFProperty(io_registry_entry_t entry, CFStringRef key, CFAllocatorRef allocator, IOOptionBits options);
+extern kern_return_t IORegistryEntryCreateCFProperties(io_registry_entry_t entry, CFMutableDictionaryRef *properties, CFAllocatorRef allocator, IOOptionBits options);
+extern kern_return_t IORegistryEntryGetProperty(io_registry_entry_t entry, const char *propertyName, char *buffer, uint32_t *size);
+
 #include <sys/mount.h>
 #include <net/if_dl.h>
 #import <unistd.h>
