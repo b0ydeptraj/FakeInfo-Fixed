@@ -26,9 +26,16 @@
 typedef mach_port_t io_object_t;
 typedef io_object_t io_registry_entry_t;
 typedef uint32_t IOOptionBits;
-extern CFTypeRef IORegistryEntryCreateCFProperty(io_registry_entry_t entry, CFStringRef key, CFAllocatorRef allocator, IOOptionBits options);
-extern kern_return_t IORegistryEntryCreateCFProperties(io_registry_entry_t entry, CFMutableDictionaryRef *properties, CFAllocatorRef allocator, IOOptionBits options);
-extern kern_return_t IORegistryEntryGetProperty(io_registry_entry_t entry, const char *propertyName, char *buffer, uint32_t *size);
+#ifdef __cplusplus
+extern "C" {
+#endif
+CFTypeRef IORegistryEntryCreateCFProperty(io_registry_entry_t entry, CFStringRef key, CFAllocatorRef allocator, IOOptionBits options);
+kern_return_t IORegistryEntryCreateCFProperties(io_registry_entry_t entry, CFMutableDictionaryRef *properties, CFAllocatorRef allocator, IOOptionBits options);
+kern_return_t IORegistryEntryGetProperty(io_registry_entry_t entry, const char *propertyName, char *buffer, uint32_t *size);
+#ifdef __cplusplus
+}
+#endif
+
 
 #include <sys/mount.h>
 #include <net/if_dl.h>
