@@ -3105,13 +3105,11 @@ static NSString *_generateFakeECID(void) {
     return cached;
 }
 
-%hookf(CFTypeRef, IORegistryEntryCreateCFProperty,
-       io_registry_entry_t entry, CFStringRef key,
-       CFAllocatorRef allocator, IOOptionBits options) {
+%hookf(CFTypeRef, IORegistryEntryCreateCFProperty, io_registry_entry_t entry, CFStringRef key, CFAllocatorRef allocator, IOOptionBits options) {
     @try {
         if (gJailbreakHidingEnabled && key) {
             _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
-            if (![cfg isEnabled:@"hardwareInfo"]) goto passthrough;
+            if ([cfg isEnabled:@"hardwareInfo"]) {
             
             NSString *keyStr = (__bridge NSString *)key;
             
@@ -3192,18 +3190,16 @@ static NSString *_generateFakeECID(void) {
                 NSData *btData = [NSData dataWithBytes:fakeBT length:6];
                 return (__bridge_retained CFTypeRef)btData;
             }
+            }
         }
     } @catch(NSException *e) {
         _cflog(@"[IOKit] Exception: %@", e.reason);
     }
-    passthrough:
     return %orig;
 }
 
 // IORegistryEntryCreateCFProperties (plural â€” returns full dictionary)
-%hookf(kern_return_t, IORegistryEntryCreateCFProperties,
-       io_registry_entry_t entry, CFMutableDictionaryRef *properties,
-       CFAllocatorRef allocator, IOOptionBits options) {
+%hookf(kern_return_t, IORegistryEntryCreateCFProperties, io_registry_entry_t entry, CFMutableDictionaryRef *properties, CFAllocatorRef allocator, IOOptionBits options) {
     kern_return_t ret = %orig;
     @try {
         if (ret == KERN_SUCCESS && properties && *properties && gJailbreakHidingEnabled) {
@@ -3254,9 +3250,7 @@ static NSString *_generateFakeECID(void) {
 }
 
 // IORegistryEntryGetProperty â€” older API, same purpose
-%hookf(kern_return_t, IORegistryEntryGetProperty,
-       io_registry_entry_t entry, const char *propertyName,
-       char *buffer, uint32_t *size) {
+%hookf(kern_return_t, IORegistryEntryGetProperty, io_registry_entry_t entry, const char *propertyName, char *buffer, uint32_t *size) {
     kern_return_t ret = %orig;
     @try {
         if (ret == KERN_SUCCESS && propertyName && buffer && size && gJailbreakHidingEnabled) {
