@@ -22,6 +22,7 @@
 #import <CoreLocation/CoreLocation.h>
 #import <CoreMotion/CoreMotion.h>
 #import <mach-o/dyld.h>
+#import <IOKit/IOKitLib.h>
 #include <sys/mount.h>
 #include <net/if_dl.h>
 #import <unistd.h>
@@ -3062,6 +3063,280 @@ static void _fakeDidUpdateLocations(id self, SEL _cmd, CLLocationManager *manage
 }
 %end
 
+// ============================================================================
+// MARK: - Phase 30: IOKit Bypass (prevent real model/serial leak)
+// Uses %hookf (Logos-managed, safe timing) â€” NOT MSHookFunction
+// ============================================================================
+
+// Generate fake serial number (12 chars, deterministic from profile)
+static NSString *_generateFakeSerial(void) {
+    static NSString *cached = nil;
+    if (!cached) {
+        @try {
+            _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
+            NSString *seed = [cfg valueForKey:@"identifierForVendor"] ?: @"default";
+            const char *s = [seed UTF8String];
+            size_t slen = strlen(s);
+            char serial[13];
+            const char *chars = "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789";
+            size_t clen = strlen(chars);
+            for (int i = 0; i < 12; i++) {
+                serial[i] = chars[((uint8_t)(s[i % slen] * 31 + i * 17 + 0xAB)) % clen];
+            }
+            serial[12] = '\0';
+            cached = [[NSString alloc] initWithUTF8String:serial];
+        } @catch(NSException *e) {
+            cached = @"F2LXF5000001";
+        }
+    }
+    return cached;
+}
+
+// Generate fake ECID (unique chip identifier, 16 hex chars)
+static NSString *_generateFakeECID(void) {
+    static NSString *cached = nil;
+    if (!cached) {
+        cached = generateStableUUID(@"iokit_ecid");
+        // Take first 16 chars as hex-like ECID
+        if (cached.length > 16) {
+            cached = [[cached stringByReplacingOccurrencesOfString:@"-" withString:@""] substringToIndex:16];
+        }
+    }
+    return cached;
+}
+
+%hookf(CFTypeRef, IORegistryEntryCreateCFProperty,
+       io_registry_entry_t entry, CFStringRef key,
+       CFAllocatorRef allocator, IOOptionBits options) {
+    @try {
+        if (gJailbreakHidingEnabled && key) {
+            _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
+            if (![cfg isEnabled:@"hardwareInfo"]) goto passthrough;
+            
+            NSString *keyStr = (__bridge NSString *)key;
+            
+            // Device model (most critical â€” apps cross-check with UIDevice.model)
+            if ([keyStr isEqualToString:@"model"] || [keyStr isEqualToString:@"product-name"]) {
+                NSString *fakeModel = [cfg valueForKey:@"deviceModel"];
+                if (fakeModel) {
+                    _cflog(@"IOKit model faked: %@", fakeModel);
+                    NSData *data = [fakeModel dataUsingEncoding:NSUTF8StringEncoding];
+                    return (__bridge_retained CFTypeRef)data;
+                }
+            }
+            
+            // Serial number (unique device identifier)
+            if ([keyStr isEqualToString:@"IOPlatformSerialNumber"] || [keyStr isEqualToString:@"serial-number"]) {
+                NSString *fakeSerial = _generateFakeSerial();
+                _cflog(@"IOKit serial faked: %@", fakeSerial);
+                return (__bridge_retained CFTypeRef)fakeSerial;
+            }
+            
+            // Platform UUID (another unique identifier)
+            if ([keyStr isEqualToString:@"IOPlatformUUID"]) {
+                NSString *fakeUUID = generateStableUUID(@"iokit_platform_uuid");
+                _cflog(@"IOKit UUID faked: %@", fakeUUID);
+                return (__bridge_retained CFTypeRef)fakeUUID;
+            }
+            
+            // ECID (Exclusive Chip Identification)
+            if ([keyStr isEqualToString:@"unique-chip-id"] || [keyStr isEqualToString:@"chip-id"]) {
+                NSString *fakeECID = _generateFakeECID();
+                return (__bridge_retained CFTypeRef)fakeECID;
+            }
+            
+            // Die ID
+            if ([keyStr isEqualToString:@"die-id"]) {
+                return (__bridge_retained CFTypeRef)generateStableUUID(@"iokit_die_id");
+            }
+            
+            // Board config (must match device model)
+            if ([keyStr isEqualToString:@"board-id"] || [keyStr isEqualToString:@"target-type"]) {
+                NSString *model = [cfg valueForKey:@"deviceModel"];
+                NSString *board = @"D74AP"; // Default iPhone 15 Pro Max
+                if (model) {
+                    if ([model hasPrefix:@"iPhone17,"]) board = @"D93AP"; // iPhone 16 Pro Max
+                    else if ([model hasPrefix:@"iPhone16,"]) board = @"D83AP"; // iPhone 15 Pro Max
+                    else if ([model hasPrefix:@"iPhone15,"]) board = @"D74AP"; // iPhone 14 Pro Max
+                    else if ([model hasPrefix:@"iPhone14,"]) board = @"D63AP"; // iPhone 13 Pro Max
+                    else if ([model hasPrefix:@"iPhone13,"]) board = @"D53gAP"; // iPhone 12 Pro Max
+                }
+                NSData *data = [board dataUsingEncoding:NSUTF8StringEncoding];
+                return (__bridge_retained CFTypeRef)data;
+            }
+            
+            // WiFi MAC address via IOKit
+            if ([keyStr isEqualToString:@"IOMACAddress"] || [keyStr isEqualToString:@"mac-address"]) {
+                // Generate same stable fake MAC as getifaddrs hook
+                NSString *seed = [cfg valueForKey:@"identifierForVendor"] ?: @"default";
+                const char *seedC = [seed UTF8String];
+                size_t seedLen = strlen(seedC);
+                uint8_t fakeMac[6];
+                for (int i = 0; i < 6; i++) {
+                    fakeMac[i] = (uint8_t)((seedC[i % seedLen] * 31 + i * 17 + 0xAB) & 0xFF);
+                }
+                fakeMac[0] = (fakeMac[0] & 0xFE) | 0x02; // Local, unicast
+                NSData *macData = [NSData dataWithBytes:fakeMac length:6];
+                return (__bridge_retained CFTypeRef)macData;
+            }
+            
+            // Bluetooth MAC
+            if ([keyStr isEqualToString:@"BluetoothAddress"]) {
+                NSString *seed = [cfg valueForKey:@"identifierForVendor"] ?: @"bt_default";
+                const char *seedC = [seed UTF8String];
+                size_t seedLen = strlen(seedC);
+                uint8_t fakeBT[6];
+                for (int i = 0; i < 6; i++) {
+                    fakeBT[i] = (uint8_t)((seedC[i % seedLen] * 37 + i * 23 + 0xCD) & 0xFF);
+                }
+                NSData *btData = [NSData dataWithBytes:fakeBT length:6];
+                return (__bridge_retained CFTypeRef)btData;
+            }
+        }
+    } @catch(NSException *e) {
+        _cflog(@"[IOKit] Exception: %@", e.reason);
+    }
+    passthrough:
+    return %orig;
+}
+
+// IORegistryEntryCreateCFProperties (plural â€” returns full dictionary)
+%hookf(kern_return_t, IORegistryEntryCreateCFProperties,
+       io_registry_entry_t entry, CFMutableDictionaryRef *properties,
+       CFAllocatorRef allocator, IOOptionBits options) {
+    kern_return_t ret = %orig;
+    @try {
+        if (ret == KERN_SUCCESS && properties && *properties && gJailbreakHidingEnabled) {
+            _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
+            if (![cfg isEnabled:@"hardwareInfo"]) return ret;
+            
+            NSMutableDictionary *dict = (__bridge NSMutableDictionary *)*properties;
+            
+            // Override model
+            NSString *fakeModel = [cfg valueForKey:@"deviceModel"];
+            if (fakeModel && dict[@"model"]) {
+                dict[@"model"] = [fakeModel dataUsingEncoding:NSUTF8StringEncoding];
+            }
+            if (fakeModel && dict[@"product-name"]) {
+                dict[@"product-name"] = [fakeModel dataUsingEncoding:NSUTF8StringEncoding];
+            }
+            
+            // Override serial
+            if (dict[@"IOPlatformSerialNumber"]) {
+                dict[@"IOPlatformSerialNumber"] = _generateFakeSerial();
+            }
+            if (dict[@"serial-number"]) {
+                dict[@"serial-number"] = [_generateFakeSerial() dataUsingEncoding:NSUTF8StringEncoding];
+            }
+            
+            // Override UUID
+            if (dict[@"IOPlatformUUID"]) {
+                dict[@"IOPlatformUUID"] = generateStableUUID(@"iokit_platform_uuid");
+            }
+            
+            // Override MAC
+            if (dict[@"IOMACAddress"]) {
+                NSString *seed = [cfg valueForKey:@"identifierForVendor"] ?: @"default";
+                const char *seedC = [seed UTF8String];
+                size_t seedLen = strlen(seedC);
+                uint8_t fakeMac[6];
+                for (int i = 0; i < 6; i++) {
+                    fakeMac[i] = (uint8_t)((seedC[i % seedLen] * 31 + i * 17 + 0xAB) & 0xFF);
+                }
+                fakeMac[0] = (fakeMac[0] & 0xFE) | 0x02;
+                dict[@"IOMACAddress"] = [NSData dataWithBytes:fakeMac length:6];
+            }
+        }
+    } @catch(NSException *e) {
+        _cflog(@"[IOKit Properties] Exception: %@", e.reason);
+    }
+    return ret;
+}
+
+// IORegistryEntryGetProperty â€” older API, same purpose
+%hookf(kern_return_t, IORegistryEntryGetProperty,
+       io_registry_entry_t entry, const char *propertyName,
+       char *buffer, uint32_t *size) {
+    kern_return_t ret = %orig;
+    @try {
+        if (ret == KERN_SUCCESS && propertyName && buffer && size && gJailbreakHidingEnabled) {
+            _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
+            if (![cfg isEnabled:@"hardwareInfo"]) return ret;
+            
+            if (strcmp(propertyName, "IOPlatformSerialNumber") == 0 ||
+                strcmp(propertyName, "serial-number") == 0) {
+                NSString *fakeSerial = _generateFakeSerial();
+                const char *fs = [fakeSerial UTF8String];
+                size_t len = strlen(fs) + 1;
+                if (*size >= len) {
+                    strcpy(buffer, fs);
+                    *size = (uint32_t)len;
+                }
+            }
+        }
+    } @catch(NSException *e) {}
+    return ret;
+}
+
+// ============================================================================
+// MARK: - Phase 31: Method Swizzle Detection Bypass
+// Apps check class_getMethodImplementation to detect hooks
+// We return original IMP for commonly checked selectors
+// ============================================================================
+
+// Cache original IMPs before they are swizzled (set in %ctor)
+static IMP _origIMP_UIDevice_model = NULL;
+static IMP _origIMP_UIDevice_name = NULL;
+static IMP _origIMP_UIDevice_systemVersion = NULL;
+static IMP _origIMP_UIDevice_identifierForVendor = NULL;
+
+%hookf(IMP, class_getMethodImplementation, Class cls, SEL sel) {
+    @try {
+        if (gJailbreakHidingEnabled && cls && sel) {
+            // Check if this is a class+selector we have hooked
+            // Return the ORIGINAL IMP so it looks like we never swizzled
+            if (cls == [UIDevice class]) {
+                if (sel == @selector(model) && _origIMP_UIDevice_model)
+                    return _origIMP_UIDevice_model;
+                if (sel == @selector(name) && _origIMP_UIDevice_name)
+                    return _origIMP_UIDevice_name;
+                if (sel == @selector(systemVersion) && _origIMP_UIDevice_systemVersion)
+                    return _origIMP_UIDevice_systemVersion;
+                if (sel == @selector(identifierForVendor) && _origIMP_UIDevice_identifierForVendor)
+                    return _origIMP_UIDevice_identifierForVendor;
+            }
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+
+// Also hook method_getImplementation for double-check apps
+%hookf(IMP, method_getImplementation, Method m) {
+    @try {
+        if (gJailbreakHidingEnabled && m) {
+            SEL sel = method_getName(m);
+            Class cls = nil;
+            // Check common selectors
+            if (sel == @selector(model) || sel == @selector(name) ||
+                sel == @selector(systemVersion) || sel == @selector(identifierForVendor)) {
+                // Get the class this method belongs to by checking UIDevice
+                Method deviceMethod = class_getInstanceMethod([UIDevice class], sel);
+                if (deviceMethod == m) {
+                    if (sel == @selector(model) && _origIMP_UIDevice_model)
+                        return _origIMP_UIDevice_model;
+                    if (sel == @selector(name) && _origIMP_UIDevice_name)
+                        return _origIMP_UIDevice_name;
+                    if (sel == @selector(systemVersion) && _origIMP_UIDevice_systemVersion)
+                        return _origIMP_UIDevice_systemVersion;
+                    if (sel == @selector(identifierForVendor) && _origIMP_UIDevice_identifierForVendor)
+                        return _origIMP_UIDevice_identifierForVendor;
+                }
+            }
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+
 // MARK: - Tweak Initialization (MERGED - single %ctor)
 %ctor {
     @autoreleasepool {
@@ -3085,6 +3360,12 @@ static void _fakeDidUpdateLocations(id self, SEL _cmd, CLLocationManager *manage
         // Set C-safe flag for _dyld_get_image_name hook (no ObjC needed)
         _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
         gJailbreakHidingEnabled = [cfg isEnabled:@"jailbreak"];
+        
+        // Cache original IMPs BEFORE Logos swizzles them (for swizzle detection bypass)
+        _origIMP_UIDevice_model = class_getMethodImplementation([UIDevice class], @selector(model));
+        _origIMP_UIDevice_name = class_getMethodImplementation([UIDevice class], @selector(name));
+        _origIMP_UIDevice_systemVersion = class_getMethodImplementation([UIDevice class], @selector(systemVersion));
+        _origIMP_UIDevice_identifierForVendor = class_getMethodImplementation([UIDevice class], @selector(identifierForVendor));
 
         void *handle = dlopen(NULL, RTLD_NOW);
         if (handle) {
