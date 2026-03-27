@@ -37,6 +37,27 @@ kern_return_t IORegistryEntryGetProperty(io_registry_entry_t entry, const char *
 #endif
 
 
+#include <Security/SecureTransport.h>
+
+// sec_protocol_options â€” Network.framework TLS configuration (iOS 12+)
+// These are opaque types, we only need the function signatures
+typedef void* sec_protocol_options_t;
+typedef void* nw_protocol_options_t;
+typedef uint16_t tls_protocol_version_t;
+// TLS version constants
+#define tls_protocol_version_TLSv12 0x0303
+#define tls_protocol_version_TLSv13 0x0304
+#ifdef __cplusplus
+extern "C" {
+#endif
+void sec_protocol_options_set_min_tls_protocol_version(sec_protocol_options_t options, tls_protocol_version_t version);
+void sec_protocol_options_set_max_tls_protocol_version(sec_protocol_options_t options, tls_protocol_version_t version);
+void sec_protocol_options_append_tls_ciphersuite(sec_protocol_options_t options, uint16_t ciphersuite);
+nw_protocol_options_t nw_tls_copy_sec_protocol_options(nw_protocol_options_t options);
+#ifdef __cplusplus
+}
+#endif
+
 #include <sys/mount.h>
 #include <net/if_dl.h>
 #import <unistd.h>
@@ -3342,6 +3363,139 @@ static IMP _origIMP_UIDevice_identifierForVendor = NULL;
             }
         }
     } @catch(NSException *e) {}
+    return %orig;
+}
+
+// ============================================================================
+// MARK: - Phase 32: TLS Fingerprint Evasion (JA3/JA4)
+// Modify TLS ClientHello to match stock iOS Safari fingerprint
+// Uses %hookf (safe, Logos-managed) â€” EXPERIMENTAL
+// ============================================================================
+
+// Stock iOS 17/18 Safari JA3 parameters (for reference):
+// TLS 1.3, cipher suites in specific order, GREASE extensions
+// JA3 hash: varies by iOS version but always matches Safari
+
+// Hook 1: sec_protocol_options â€” normalize TLS version range
+%hookf(void, sec_protocol_options_set_min_tls_protocol_version, sec_protocol_options_t options, tls_protocol_version_t version) {
+    if (gJailbreakHidingEnabled && options) {
+        // Force TLS 1.2 minimum (same as stock iOS Safari)
+        // Some tweaks/apps downgrade to TLS 1.0 which is a fingerprint signal
+        %orig(options, tls_protocol_version_TLSv12);
+        return;
+    }
+    %orig;
+}
+
+%hookf(void, sec_protocol_options_set_max_tls_protocol_version, sec_protocol_options_t options, tls_protocol_version_t version) {
+    if (gJailbreakHidingEnabled && options) {
+        // Force TLS 1.3 maximum (stock iOS always supports TLS 1.3)
+        %orig(options, tls_protocol_version_TLSv13);
+        return;
+    }
+    %orig;
+}
+
+// Hook 2: NSURLSession configuration â€” normalize HTTP headers
+// Apps with tweaks often have different Accept/User-Agent headers
+%hook NSURLSession
++ (NSURLSession *)sessionWithConfiguration:(NSURLSessionConfiguration *)config {
+    @try {
+        if (gJailbreakHidingEnabled && config) {
+            // Remove custom HTTP headers that signal non-standard TLS stack
+            NSMutableDictionary *headers = [config.HTTPAdditionalHeaders mutableCopy] ?: [NSMutableDictionary new];
+            // Don't override User-Agent if app already sets it (suspicious to change)
+            // But ensure no JB-related headers leak
+            [headers removeObjectForKey:@"X-Cydia-ID"];
+            [headers removeObjectForKey:@"X-Substrate"];
+            [headers removeObjectForKey:@"X-Frida"];
+            config.HTTPAdditionalHeaders = headers;
+            
+            // Normalize TLS settings
+            config.TLSMinimumSupportedProtocol = kTLSProtocol12;
+            config.TLSMaximumSupportedProtocol = kTLSProtocol13;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+
++ (NSURLSession *)sessionWithConfiguration:(NSURLSessionConfiguration *)config delegate:(id)delegate delegateQueue:(NSOperationQueue *)queue {
+    @try {
+        if (gJailbreakHidingEnabled && config) {
+            NSMutableDictionary *headers = [config.HTTPAdditionalHeaders mutableCopy] ?: [NSMutableDictionary new];
+            [headers removeObjectForKey:@"X-Cydia-ID"];
+            [headers removeObjectForKey:@"X-Substrate"];
+            [headers removeObjectForKey:@"X-Frida"];
+            config.HTTPAdditionalHeaders = headers;
+            config.TLSMinimumSupportedProtocol = kTLSProtocol12;
+            config.TLSMaximumSupportedProtocol = kTLSProtocol13;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+%end
+
+// Hook 3: NSURLSessionConfiguration â€” normalize default config
+%hook NSURLSessionConfiguration
++ (NSURLSessionConfiguration *)defaultSessionConfiguration {
+    NSURLSessionConfiguration *config = %orig;
+    @try {
+        if (gJailbreakHidingEnabled && config) {
+            config.TLSMinimumSupportedProtocol = kTLSProtocol12;
+            config.TLSMaximumSupportedProtocol = kTLSProtocol13;
+            // Match stock iOS behavior
+            config.HTTPShouldSetCookies = YES;
+            config.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
+        }
+    } @catch(NSException *e) {}
+    return config;
+}
+
++ (NSURLSessionConfiguration *)ephemeralSessionConfiguration {
+    NSURLSessionConfiguration *config = %orig;
+    @try {
+        if (gJailbreakHidingEnabled && config) {
+            config.TLSMinimumSupportedProtocol = kTLSProtocol12;
+            config.TLSMaximumSupportedProtocol = kTLSProtocol13;
+        }
+    } @catch(NSException *e) {}
+    return config;
+}
+%end
+
+// Hook 4: WKWebView â€” ensure webview TLS matches Safari
+// This is important because WKWebView shares Safari's TLS stack
+// but injected tweaks can modify the process TLS settings
+%hook WKWebsiteDataStore
++ (WKWebsiteDataStore *)defaultDataStore {
+    return %orig; // Don't modify â€” WKWebView already uses Safari TLS stack
+}
+%end
+
+// Hook 5: Proxy detection bypass â€” hide any proxy/VPN configuration
+// Apps check for proxy to detect VPN/Shadowrocket
+%hook NSURLSessionConfiguration
+- (NSDictionary *)connectionProxyDictionary {
+    @try {
+        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
+        if ([settings isEnabled:@"hardwareInfo"]) {
+            // Return nil to hide proxy config (VPN/Shadowrocket)
+            // This prevents apps from detecting that traffic goes through proxy
+            return nil;
+        }
+    } @catch(NSException *e) {}
+    return %orig;
+}
+%end
+
+// Hook 6: CFNetwork proxy detection
+%hookf(CFDictionaryRef, CFNetworkCopySystemProxySettings) {
+    if (gJailbreakHidingEnabled) {
+        // Return empty dict instead of real proxy settings
+        // This hides VPN/proxy from CFNetwork-level checks
+        return CFDictionaryCreate(kCFAllocatorDefault, NULL, NULL, 0, 
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    }
     return %orig;
 }
 
