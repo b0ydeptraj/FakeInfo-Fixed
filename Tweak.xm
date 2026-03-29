@@ -2355,20 +2355,8 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (void)generateTokenWithCompletionHandler:(void (^)(NSData *token, NSError *error))completion {
-    @try {
-        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-        if ([settings isEnabled:@"hardwareInfo"] && completion) {
-            // Return cached 68-byte DeviceCheck-sized fake token (Apple standard)
-            static NSData *cachedToken = nil;
-            if (!cachedToken) {
-                uint8_t fakeBytes[68]; // DeviceCheck token is typically 68 bytes
-                arc4random_buf(fakeBytes, sizeof(fakeBytes));
-                cachedToken = [NSData dataWithBytes:fakeBytes length:sizeof(fakeBytes)];
-            }
-            completion(cachedToken, nil);
-            return;
-        }
-    } @catch(NSException *e) {}
+    // CRITICAL: Let Apple generate REAL token — fake tokens get rejected server-side
+    // causing error callbacks that crash apps expecting valid tokens
     %orig;
 }
 %end
@@ -2439,13 +2427,8 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (void)start {
-    @try {
-        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            _cflog(@"AppsFlyer start BLOCKED");
-            return; // Don't start SDK = no fingerprint sent
-        }
-    } @catch(NSException *e) {}
+    // CRITICAL: Let SDK init normally — blocking causes crash on subsequent calls
+    // Device IDs are already faked via getAppsFlyerUID hook
     %orig;
 }
 
@@ -2461,13 +2444,8 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // MARK: - Block Adjust SDK
 %hook Adjust
 + (void)appDidLaunch:(id)config {
-    @try {
-        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
-            _cflog(@"Adjust appDidLaunch BLOCKED");
-            return; // Don't initialize SDK
-        }
-    } @catch(NSException *e) {}
+    // CRITICAL: Let SDK init normally — blocking causes crash on subsequent calls
+    // Device IDs are already faked via adid hook
     %orig;
 }
 
