@@ -2950,69 +2950,49 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // MARK: - Keychain Configuration (SMART: only block device fingerprint items)
 // CRITICAL FIX: Previous version blocked ALL keychain → app crash after registration
 // New version: only block items containing device fingerprint keys
-// App auth tokens, passwords, login sessions → PASS THROUGH normally
+// Uses C-safe strcasestr — ZERO allocations, no performance hit
 
-static BOOL _isDeviceFingerprintKeychainItem(CFDictionaryRef query) {
-    if (!query) return NO;
-    
-    // Check kSecAttrAccount, kSecAttrService, kSecAttrLabel for fingerprint-related strings
-    NSArray *keysToCheck = @[
-        (__bridge NSString *)kSecAttrAccount,
-        (__bridge NSString *)kSecAttrService, 
-        (__bridge NSString *)kSecAttrLabel,
-        (__bridge NSString *)kSecAttrGeneric
-    ];
-    
-    // Device fingerprint patterns that should be blocked
-    NSArray *fingerprintPatterns = @[
-        @"device_id", @"deviceId", @"device-id",
-        @"udid", @"UDID", @"vendorId", @"vendor_id",
-        @"unique_id", @"uniqueId", @"uniqueIdentifier",
-        @"fingerprint", @"device_fingerprint", @"deviceFingerprint",
-        @"hardware_id", @"hardwareId",
-        @"appsflyer", @"AppsFlyer", @"af_",
-        @"adjust", @"Adjust",
-        @"branch_", @"Branch",
-        @"mixpanel", @"Mixpanel",
-        @"amplitude", @"Amplitude",
-        @"firebase", @"Firebase", @"FIR",
-        @"com.facebook.sdk", @"fbsdk",
-        @"device_token", @"deviceToken",
-        @"install_id", @"installId", @"installation_id",
-        @"advertising_id", @"advertisingId",
-        @"idfa", @"IDFA", @"idfv", @"IDFV",
-        @"persistentId", @"persistent_id",
-        @"com.appsflyer", @"com.adjust",
-        @"sift_", @"Sift",
-        @"shield_", @"SHIELD",
-        @"incognia", @"Incognia",
-        @"perimeterx", @"PerimeterX",
-        @"riskified", @"Riskified"
-    ];
-    
-    NSDictionary *dict = (__bridge NSDictionary *)query;
-    for (NSString *key in keysToCheck) {
-        id value = dict[key];
-        if ([value isKindOfClass:[NSString class]]) {
-            NSString *strValue = (NSString *)value;
-            for (NSString *pattern in fingerprintPatterns) {
-                if ([strValue localizedCaseInsensitiveContainsString:pattern]) {
-                    return YES;
-                }
-            }
-        } else if ([value isKindOfClass:[NSData class]]) {
-            NSString *strValue = [[NSString alloc] initWithData:(NSData *)value encoding:NSUTF8StringEncoding];
-            if (strValue) {
-                for (NSString *pattern in fingerprintPatterns) {
-                    if ([strValue localizedCaseInsensitiveContainsString:pattern]) {
-                        return YES;
-                    }
-                }
-            }
-        }
+// C-safe fingerprint check (no ObjC allocations)
+static const char *_fingerprintKeywords[] = {
+    "device_id", "deviceid", "device-id",
+    "udid", "vendorid", "vendor_id",
+    "uniqueid", "unique_id", "fingerprint",
+    "hardware_id", "hardwareid",
+    "appsflyer", "af_device",
+    "adjust", "branch_",
+    "mixpanel", "amplitude",
+    "firebase", "fir_",
+    "fbsdk", "facebook.sdk",
+    "install_id", "installid",
+    "advertising_id", "advertisingid",
+    "idfa", "idfv",
+    "persistentid", "persistent_id",
+    "sift_", "shield_", "incognia",
+    "perimeterx", "riskified",
+    NULL
+};
+
+static BOOL _cStringMatchesFingerprint(const char *str) {
+    if (!str) return NO;
+    for (int i = 0; _fingerprintKeywords[i]; i++) {
+        if (strcasestr(str, _fingerprintKeywords[i])) return YES;
     }
     return NO;
 }
+
+static BOOL _isDeviceFingerprintKeychainItem(CFDictionaryRef query) {
+    if (!query) return NO;
+    @try {
+        NSDictionary *dict = (__bridge NSDictionary *)query;
+        // Only check 2 most common keys (fast path)
+        NSString *account = dict[(__bridge NSString *)kSecAttrAccount];
+        if ([account isKindOfClass:[NSString class]] && _cStringMatchesFingerprint([account UTF8String])) return YES;
+        NSString *service = dict[(__bridge NSString *)kSecAttrService];
+        if ([service isKindOfClass:[NSString class]] && _cStringMatchesFingerprint([service UTF8String])) return YES;
+    } @catch(NSException *e) {}
+    return NO;
+}
+
 
 OSStatus _sec_query_handler(CFDictionaryRef query, CFTypeRef *result) {
     @try {
