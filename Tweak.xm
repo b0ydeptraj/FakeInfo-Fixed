@@ -42,6 +42,10 @@ static void* (*orig_dlopen_ptr)(const char *, int) = NULL;
 static uid_t (*orig_getuid_ptr)(void) = NULL;
 static uid_t (*orig_geteuid_ptr)(void) = NULL;
 
+// ObjC class list hiding hook (Phase 31)
+static Class* (*orig_objc_copyClassList_ptr)(unsigned int *outCount) = NULL;
+Class* _objc_copyClassList_handler(unsigned int *outCount);  // forward decl
+
 // C-safe flag for hooks that run before ObjC is ready
 static BOOL gJailbreakHidingEnabled = NO;
 
@@ -3182,7 +3186,11 @@ static void _fakeDidUpdateLocations(id self, SEL _cmd, CLLocationManager *manage
         // dlopen â€” safe %hookf version exists below (whitelist-based)
         // getuid/geteuid â€” safe %hookf version exists below (returns 501)
         
-        _cflog(@"All hooks installed (merged)");
+        // Phase 31: ObjC class list hiding (from MaxIdentity)
+        void *ptr_objc_copyClassList = (void *)MSFindSymbol(NULL, "_objc_copyClassList");
+        if (ptr_objc_copyClassList) MSHookFunction(ptr_objc_copyClassList, (void *)_objc_copyClassList_handler, (void **)&orig_objc_copyClassList_ptr);
+        
+        _cflog(@"All hooks installed (merged + Phase 30-31)");
         
         // Delay setup until the app is ready.
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
