@@ -552,6 +552,70 @@ static UITapGestureRecognizer *tripleFingerGesture = nil;
 static UILongPressGestureRecognizer *fourFingerLongPress = nil;
 static UILongPressGestureRecognizer *fourFingerShortPress = nil;
 
+// MARK: - Factory Reset (Phase 32 - standalone C functions)
+static void _executeFactoryReset(void) {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        _cflog(@"FACTORY RESET - Starting full data nuke...");
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSArray *dirs = @[@(NSDocumentDirectory), @(NSLibraryDirectory), @(NSCachesDirectory)];
+        for (NSNumber *d in dirs) {
+            NSArray *paths = NSSearchPathForDirectoriesInDomains([d integerValue], NSUserDomainMask, YES);
+            for (NSString *path in paths) {
+                for (NSString *item in [fm contentsOfDirectoryAtPath:path error:nil]) {
+                    [fm removeItemAtPath:[path stringByAppendingPathComponent:item] error:nil];
+                }
+            }
+        }
+        NSString *tmpDir = NSTemporaryDirectory();
+        for (NSString *item in [fm contentsOfDirectoryAtPath:tmpDir error:nil]) {
+            [fm removeItemAtPath:[tmpDir stringByAppendingPathComponent:item] error:nil];
+        }
+        NSArray *secClasses = @[
+            (__bridge id)kSecClassGenericPassword,
+            (__bridge id)kSecClassInternetPassword,
+            (__bridge id)kSecClassCertificate,
+            (__bridge id)kSecClassKey,
+            (__bridge id)kSecClassIdentity,
+        ];
+        for (id secClass in secClasses) {
+            NSDictionary *q = @{(__bridge id)kSecClass: secClass};
+            SecItemDelete((__bridge CFDictionaryRef)q);
+        }
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            NSHTTPCookieStorage *cs = [NSHTTPCookieStorage sharedHTTPCookieStorage];
+            for (NSHTTPCookie *c in [cs cookies]) { [cs deleteCookie:c]; }
+        });
+        NSString *wk = [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"WebKit"];
+        [fm removeItemAtPath:wk error:nil];
+        NSString *bid = [[NSBundle mainBundle] bundleIdentifier];
+        if (bid) {
+            [[NSUserDefaults standardUserDefaults] removePersistentDomainForName:bid];
+            [[NSUserDefaults standardUserDefaults] synchronize];
+        }
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            if (sessionCache) [sessionCache removeAllObjects];
+            sessionCacheInitialized = NO;
+            [[_UIDeviceConfig shared] applyRandomConfig];
+            [[_UIDeviceConfig shared] persistConfig];
+        });
+        _cflog(@"FACTORY RESET COMPLETE");
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            exit(0);
+        });
+    });
+}
+
+static void _confirmFactoryReset(UIViewController *presenter) {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Factory Reset"
+        message:@"DELETE ALL app data: Documents, Library, Caches, Keychain, Cookies, UserDefaults. Cannot be undone!"
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"NUKE IT" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        _executeFactoryReset();
+    }]];
+    [presenter presentViewController:alert animated:YES completion:nil];
+}
+
 // MARK: - _UISystemConfigController Implementation
 @implementation _UISystemConfigController
 
@@ -637,7 +701,7 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return self.settingsKeys.count;
-    return 3; // Random All + Reset + Verify
+    return 4; // Random All + Reset + Factory Reset + Verify
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
@@ -657,6 +721,10 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
         } else if (indexPath.row == 1) {
             cell.textLabel.text = @"Reset Config";
             cell.textLabel.textColor = [UIColor systemRedColor];
+        } else if (indexPath.row == 2) {
+            cell.textLabel.text = @"Factory Reset (Nuke Data)";
+            cell.textLabel.textColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:1.0];
+            cell.textLabel.font = [UIFont boldSystemFontOfSize:16];
         } else {
             cell.textLabel.text = @"Run Diagnostics";
             cell.textLabel.textColor = [UIColor systemOrangeColor];
@@ -693,6 +761,8 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
         } else if (indexPath.row == 1) {
             [[_UIDeviceConfig shared] clearConfig];
             [self.tableView reloadData];
+        } else if (indexPath.row == 2) {
+            _confirmFactoryReset(self);
         } else {
             [self runDiagnostics];
         }
