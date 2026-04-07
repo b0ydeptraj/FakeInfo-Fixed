@@ -283,6 +283,7 @@ void CrashHandler(int sig) {
 - (void)restoreConfig;
 - (void)persistConfig;
 - (void)clearConfig;
+- (void)applyRandomConfig;
 @property (nonatomic, strong) NSMutableDictionary *settings;
 @property (nonatomic, strong) NSMutableDictionary *toggles;
 @property (nonatomic, strong) NSDictionary *baselineConfig;
@@ -559,7 +560,7 @@ static void _executeFactoryReset(void) {
         NSFileManager *fm = [NSFileManager defaultManager];
         NSArray *dirs = @[@(NSDocumentDirectory), @(NSLibraryDirectory), @(NSCachesDirectory)];
         for (NSNumber *d in dirs) {
-            NSArray *paths = NSSearchPathForDirectoriesInDomains([d integerValue], NSUserDomainMask, YES);
+            NSArray *paths = NSSearchPathForDirectoriesInDomains((NSSearchPathDirectory)[d integerValue], NSUserDomainMask, YES);
             for (NSString *path in paths) {
                 for (NSString *item in [fm contentsOfDirectoryAtPath:path error:nil]) {
                     [fm removeItemAtPath:[path stringByAppendingPathComponent:item] error:nil];
