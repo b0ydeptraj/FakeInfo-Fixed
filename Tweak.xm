@@ -42,7 +42,7 @@ static void* (*orig_dlopen_ptr)(const char *, int) = NULL;
 static uid_t (*orig_getuid_ptr)(void) = NULL;
 static uid_t (*orig_geteuid_ptr)(void) = NULL;
 
-// ObjC class list hiding hooks
+// ObjC class list hiding hooks (Phase 31 - from MaxIdentity)
 static Class* (*orig_objc_copyClassList_ptr)(unsigned int *outCount) = NULL;
 static const char* (*orig_class_getName_ptr)(Class cls) = NULL;
 
@@ -652,17 +652,17 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
         cell.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.1];
         
         if (indexPath.row == 0) {
-            cell.textLabel.text = @"🎲 Randomize Config";
+            cell.textLabel.text = @"\U0001F3B2 Randomize Config";
             cell.textLabel.textColor = [UIColor systemGreenColor];
         } else if (indexPath.row == 1) {
-            cell.textLabel.text = @"🔄 Reset Config";
+            cell.textLabel.text = @"\U0001F504 Reset Config";
             cell.textLabel.textColor = [UIColor systemRedColor];
         } else if (indexPath.row == 2) {
-            cell.textLabel.text = @"💣 Factory Reset (Nuke All Data)";
+            cell.textLabel.text = @"\U0001F4A3 Factory Reset (Nuke All Data)";
             cell.textLabel.textColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:1.0];
             cell.textLabel.font = [UIFont boldSystemFontOfSize:16];
         } else {
-            cell.textLabel.text = @"🔍 Run Diagnostics";
+            cell.textLabel.text = @"\U0001F50D Run Diagnostics";
             cell.textLabel.textColor = [UIColor systemOrangeColor];
         }
         return cell;
@@ -752,14 +752,14 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
 }
 
 // ============================================================================
-// MARK: - Factory Reset (Full Data Nuke — ported from MaxIdentity)
+// MARK: - Factory Reset (Full Data Nuke - ported from MaxIdentity)
 // ============================================================================
 - (void)confirmFactoryReset {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"⚠️ Factory Reset"
-                                                                  message:@"This will DELETE ALL app data:\n\n• Documents & Library\n• Caches & tmp\n• Keychain entries\n• HTTP Cookies\n• WebKit storage\n• NSUserDefaults\n\nThe app will close and reopen as a fresh install.\n\nThis CANNOT be undone!"
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Factory Reset"
+                                                                  message:@"This will DELETE ALL app data:\n\nDocuments & Library\nCaches & tmp\nKeychain entries\nHTTP Cookies\nWebKit storage\nNSUserDefaults\n\nThe app will close and reopen as a fresh install.\n\nThis CANNOT be undone!"
                                                            preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"💣 NUKE EVERYTHING" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+    [alert addAction:[UIAlertAction actionWithTitle:@"NUKE EVERYTHING" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
         [self executeFactoryReset];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -767,37 +767,28 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
 
 - (void)executeFactoryReset {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-        _cflog(@"💣 FACTORY RESET — Starting full data nuke...");
-        
+        _cflog(@"FACTORY RESET - Starting full data nuke...");
         NSFileManager *fm = [NSFileManager defaultManager];
         
-        // 1. Wipe Documents, Library, Caches, tmp directories
-        NSArray *searchPaths = @[
-            @(NSDocumentDirectory),
-            @(NSLibraryDirectory),
-            @(NSCachesDirectory),
-        ];
+        // 1. Wipe Documents, Library, Caches directories
+        NSArray *searchPaths = @[@(NSDocumentDirectory), @(NSLibraryDirectory), @(NSCachesDirectory)];
         for (NSNumber *dir in searchPaths) {
             NSArray *paths = NSSearchPathForDirectoriesInDomains([dir integerValue], NSUserDomainMask, YES);
             for (NSString *path in paths) {
                 NSArray *contents = [fm contentsOfDirectoryAtPath:path error:nil];
                 for (NSString *item in contents) {
-                    NSString *fullPath = [path stringByAppendingPathComponent:item];
-                    [fm removeItemAtPath:fullPath error:nil];
-                    _cflog(@"💣 Deleted: %@", fullPath);
+                    [fm removeItemAtPath:[path stringByAppendingPathComponent:item] error:nil];
                 }
             }
         }
         
-        // tmp directory
+        // 2. Wipe tmp directory
         NSString *tmpDir = NSTemporaryDirectory();
-        NSArray *tmpContents = [fm contentsOfDirectoryAtPath:tmpDir error:nil];
-        for (NSString *item in tmpContents) {
+        for (NSString *item in [fm contentsOfDirectoryAtPath:tmpDir error:nil]) {
             [fm removeItemAtPath:[tmpDir stringByAppendingPathComponent:item] error:nil];
         }
-        _cflog(@"💣 tmp directory cleaned");
         
-        // 2. Wipe ALL Keychain entries (all classes)
+        // 3. Wipe ALL Keychain entries
         NSArray *secClasses = @[
             (__bridge id)kSecClassGenericPassword,
             (__bridge id)kSecClassInternetPassword,
@@ -807,53 +798,39 @@ static UILongPressGestureRecognizer *fourFingerShortPress = nil;
         ];
         for (id secClass in secClasses) {
             NSDictionary *query = @{(__bridge id)kSecClass: secClass};
-            OSStatus status = errSecSuccess;
             if (orig_SecItemDelete_ptr) {
-                status = orig_SecItemDelete_ptr((__bridge CFDictionaryRef)query);
+                orig_SecItemDelete_ptr((__bridge CFDictionaryRef)query);
             } else {
-                status = SecItemDelete((__bridge CFDictionaryRef)query);
+                SecItemDelete((__bridge CFDictionaryRef)query);
             }
-            _cflog(@"💣 Keychain %@ cleared: %d", secClass, (int)status);
         }
         
-        // 3. Wipe HTTP Cookies
+        // 4. Wipe HTTP Cookies
         dispatch_sync(dispatch_get_main_queue(), ^{
-            NSHTTPCookieStorage *cookieStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
-            NSArray *cookies = [cookieStorage cookies];
-            for (NSHTTPCookie *cookie in cookies) {
-                [cookieStorage deleteCookie:cookie];
-            }
-            _cflog(@"💣 Deleted %lu HTTP cookies", (unsigned long)cookies.count);
+            NSHTTPCookieStorage *cs = [NSHTTPCookieStorage sharedHTTPCookieStorage];
+            for (NSHTTPCookie *cookie in [cs cookies]) { [cs deleteCookie:cookie]; }
         });
         
-        // 4. Wipe WebKit storage
+        // 5. Wipe WebKit storage
         NSString *webkitDir = [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"WebKit"];
         [fm removeItemAtPath:webkitDir error:nil];
-        _cflog(@"💣 WebKit storage deleted");
         
-        // 5. Wipe NSUserDefaults
+        // 6. Wipe NSUserDefaults
         NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier];
         if (bundleId) {
             [[NSUserDefaults standardUserDefaults] removePersistentDomainForName:bundleId];
             [[NSUserDefaults standardUserDefaults] synchronize];
         }
-        _cflog(@"💣 NSUserDefaults wiped for: %@", bundleId);
         
-        // 6. Generate new identity
+        // 7. Generate new identity
         dispatch_sync(dispatch_get_main_queue(), ^{
-            // Clear session cache
             if (sessionCache) [sessionCache removeAllObjects];
             sessionCacheInitialized = NO;
-            
-            // Apply fresh random config
             [[_UIDeviceConfig shared] applyRandomConfig];
             [[_UIDeviceConfig shared] persistConfig];
-            _cflog(@"💣 New identity generated and saved");
         });
         
-        _cflog(@"💣 FACTORY RESET COMPLETE — Terminating app...");
-        
-        // 7. Kill app (reopens as "fresh install")
+        _cflog(@"FACTORY RESET COMPLETE - Terminating app...");
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             exit(0);
         });
@@ -3301,16 +3278,11 @@ static void _fakeDidUpdateLocations(id self, SEL _cmd, CLLocationManager *manage
         // dlopen â€” safe %hookf version exists below (whitelist-based)
         // getuid/geteuid â€” safe %hookf version exists below (returns 501)
         
-        _cflog(@"ObjC class hiding + deep hooks installed");
-        
         // Phase 31: ObjC class list hiding (from MaxIdentity)
         void *ptr_objc_copyClassList = (void *)MSFindSymbol(NULL, "_objc_copyClassList");
         if (ptr_objc_copyClassList) MSHookFunction(ptr_objc_copyClassList, (void *)_objc_copyClassList_handler, (void **)&orig_objc_copyClassList_ptr);
         
-        void *ptr_class_getName = (void *)MSFindSymbol(NULL, "_class_getName");
-        if (ptr_class_getName) MSHookFunction(ptr_class_getName, (void *)_class_getName_handler, (void **)&orig_class_getName_ptr);
-        
-        _cflog(@"All hooks installed (merged + Phase 30-32)");
+        _cflog(@"All hooks installed (merged + Phase 30-31)");
         
         // Delay setup until the app is ready.
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
@@ -3948,17 +3920,15 @@ static void _fakeDidRegisterPush(id self, SEL _cmd, UIApplication *app, NSData *
 
 // ============================================================================
 // MARK: - Phase 30: NSUserDefaults Device ID Key Spoofing (from MaxIdentity)
-// Many apps store device fingerprints in NSUserDefaults under well-known keys.
-// This hook intercepts reads and returns the spoofed UUID instead of the real one.
 // ============================================================================
 
 static NSSet *_userDefaultsFingerprintKeys = nil;
+static BOOL _isInsideUserDefaultsHook = NO;
 
 static void _initUserDefaultsFingerprintKeys(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         _userDefaultsFingerprintKeys = [NSSet setWithArray:@[
-            // Common device ID keys (from MaxIdentity analysis)
             @"device_id", @"deviceId", @"deviceID",
             @"device_uuid", @"deviceUUID", @"deviceUuid",
             @"unique_id", @"uniqueId", @"uniqueID",
@@ -3972,13 +3942,10 @@ static void _initUserDefaultsFingerprintKeys(void) {
             @"hardware_id", @"hardwareId",
             @"persistent_id", @"persistentId",
             @"anonymous_id", @"anonymousId",
-            @"session_id", @"sessionId",
             @"udid", @"UDID",
             @"vendorId", @"vendor_id",
             @"advertisingId", @"advertising_id",
-            // SDK-specific keys
-            @"appsflyer_id", @"appsflyerId",
-            @"af_device_id",
+            @"appsflyer_id", @"appsflyerId", @"af_device_id",
             @"adjust_id", @"adjustId",
             @"branch_device_id",
             @"amplitude_device_id",
@@ -3991,21 +3958,14 @@ static void _initUserDefaultsFingerprintKeys(void) {
     });
 }
 
-// Recursion guard for NSUserDefaults hook
-static BOOL _isInsideUserDefaultsHook = NO;
-
 %hook NSUserDefaults
 
 - (id)objectForKey:(NSString *)defaultName {
-    // Guard against infinite recursion (generateStableUUID calls NSUserDefaults internally)
     if (_isInsideUserDefaultsHook) return %orig;
-    
     @try {
         _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
         if ([cfg isEnabled:@"hardwareInfo"] && defaultName) {
-            // Skip our own internal cache keys
             if ([defaultName hasPrefix:@"com.apple.device.cache_"]) return %orig;
-            
             _initUserDefaultsFingerprintKeys();
             if ([_userDefaultsFingerprintKeys containsObject:defaultName]) {
                 _isInsideUserDefaultsHook = YES;
@@ -4013,7 +3973,6 @@ static BOOL _isInsideUserDefaultsHook = NO;
                 _isInsideUserDefaultsHook = NO;
                 return spoofed;
             }
-            // Case-insensitive pattern matching
             NSString *lower = [defaultName lowercaseString];
             if (([lower containsString:@"device_id"] || [lower containsString:@"deviceid"] ||
                  [lower containsString:@"fingerprint"] || [lower containsString:@"unique_id"] ||
@@ -4031,12 +3990,10 @@ static BOOL _isInsideUserDefaultsHook = NO;
 
 - (NSString *)stringForKey:(NSString *)defaultName {
     if (_isInsideUserDefaultsHook) return %orig;
-    
     @try {
         _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
         if ([cfg isEnabled:@"hardwareInfo"] && defaultName) {
             if ([defaultName hasPrefix:@"com.apple.device.cache_"]) return %orig;
-            
             _initUserDefaultsFingerprintKeys();
             if ([_userDefaultsFingerprintKeys containsObject:defaultName]) {
                 _isInsideUserDefaultsHook = YES;
@@ -4053,8 +4010,6 @@ static BOOL _isInsideUserDefaultsHook = NO;
 
 // ============================================================================
 // MARK: - Phase 31: ObjC Class List Hiding (from MaxIdentity)
-// Prevent apps from enumerating ObjC runtime to find tweak classes.
-// Hides _UIDeviceConfig, _UISystemConfigController, _UIGestureProxy from class list.
 // ============================================================================
 
 static const char *_hiddenClassPrefixes[] = {
@@ -4083,7 +4038,6 @@ Class* _objc_copyClassList_handler(unsigned int *outCount) {
         return originalList;
     }
     
-    // Count non-hidden classes
     unsigned int filteredCount = 0;
     for (unsigned int i = 0; i < originalCount; i++) {
         const char *name = orig_class_getName_ptr ? orig_class_getName_ptr(originalList[i]) : class_getName(originalList[i]);
@@ -4092,7 +4046,6 @@ Class* _objc_copyClassList_handler(unsigned int *outCount) {
         }
     }
     
-    // Allocate filtered list
     Class *filteredList = (Class *)malloc((filteredCount + 1) * sizeof(Class));
     unsigned int j = 0;
     for (unsigned int i = 0; i < originalCount; i++) {
@@ -4108,17 +4061,3 @@ Class* _objc_copyClassList_handler(unsigned int *outCount) {
     return filteredList;
 }
 
-const char* _class_getName_handler(Class cls) {
-    const char *realName = orig_class_getName_ptr ? orig_class_getName_ptr(cls) : NULL;
-    if (!realName) return realName;
-    
-    // If jailbreak hiding is active and this is a hidden class, return generic name
-    if (gJailbreakHidingEnabled && _isHiddenClassName(realName)) {
-        return "NSObject"; // Appear as generic NSObject
-    }
-    return realName;
-}
-
-// ============================================================================
-// MARK: - Phase 32: HTTP Cookie Wipe on Reset (from MaxIdentity)
-// Hook NSHTTPCookieStorage to support full cookie wipe during factory reset.
