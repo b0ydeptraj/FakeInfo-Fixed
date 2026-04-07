@@ -4122,12 +4122,3 @@ const char* _class_getName_handler(Class cls) {
 // ============================================================================
 // MARK: - Phase 32: HTTP Cookie Wipe on Reset (from MaxIdentity)
 // Hook NSHTTPCookieStorage to support full cookie wipe during factory reset.
-// ============================================================================
-
-%hook NSHTTPCookieStorage
-- (NSArray *)cookies {
-    // Normal operation - let cookies work normally
-    // Cookie wipe happens in executeFactoryReset
-    return %orig;
-}
-%end
