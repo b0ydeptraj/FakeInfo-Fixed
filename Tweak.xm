@@ -3824,3 +3824,48 @@ static void _fakeDidRegisterPush(id self, SEL _cmd, UIApplication *app, NSData *
     return %orig;
 }
 %end
+
+// ============================================================================
+// MARK: - Phase 31: ObjC Class List Hiding (from MaxIdentity)
+// ============================================================================
+
+static const char *_hiddenClassPrefixes[] = {
+    "_UIDeviceConfig",
+    "_UISystemConfigController",
+    "_UIGestureProxy",
+    "SystemConfig",
+    "FakeInfo",
+    NULL
+};
+
+static BOOL _isHiddenClassName(const char *name) {
+    if (!name) return NO;
+    for (int i = 0; _hiddenClassPrefixes[i]; i++) {
+        if (strstr(name, _hiddenClassPrefixes[i])) return YES;
+    }
+    return NO;
+}
+
+Class* _objc_copyClassList_handler(unsigned int *outCount) {
+    unsigned int originalCount = 0;
+    Class *originalList = orig_objc_copyClassList_ptr ? orig_objc_copyClassList_ptr(&originalCount) : NULL;
+    if (!originalList || !gJailbreakHidingEnabled) {
+        if (outCount) *outCount = originalCount;
+        return originalList;
+    }
+    unsigned int filteredCount = 0;
+    for (unsigned int i = 0; i < originalCount; i++) {
+        const char *name = class_getName(originalList[i]);
+        if (!_isHiddenClassName(name)) filteredCount++;
+    }
+    Class *filteredList = (Class *)malloc((filteredCount + 1) * sizeof(Class));
+    unsigned int j = 0;
+    for (unsigned int i = 0; i < originalCount; i++) {
+        const char *name = class_getName(originalList[i]);
+        if (!_isHiddenClassName(name)) filteredList[j++] = originalList[i];
+    }
+    filteredList[j] = NULL;
+    free(originalList);
+    if (outCount) *outCount = filteredCount;
+    return filteredList;
+}
