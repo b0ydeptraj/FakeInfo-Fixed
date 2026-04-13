@@ -52,6 +52,8 @@ static BOOL gJailbreakHidingEnabled = NO;
 // Container path redirection hooks (Crane-inspired)
 static NSString* (*orig_NSHomeDirectory)(void) = NULL;
 static NSArray* (*orig_NSSearchPathForDirectoriesInDomains)(NSSearchPathDirectory, NSSearchPathDomainMask, BOOL) = NULL;
+static NSString *_cachedOriginalLibraryPath = nil;  // Cached BEFORE hooks installed
+static BOOL _insideContainerHook = NO;  // Recursion guard
 
 // Keychain hooks
 static OSStatus (*orig_SecItemCopyMatching_ptr)(CFDictionaryRef query, CFTypeRef *result) = NULL;
@@ -554,7 +556,17 @@ void CrashHandler(int sig) {
 }
 
 - (NSString *)containerBasePath {
-    NSString *lib = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+    // Use cached path to avoid infinite recursion with hooked NSSearchPath
+    if (_cachedOriginalLibraryPath) {
+        return [_cachedOriginalLibraryPath stringByAppendingPathComponent:@"___SC_Containers"];
+    }
+    // Fallback: use orig function pointer if available
+    NSString *lib = nil;
+    if (orig_NSSearchPathForDirectoriesInDomains) {
+        lib = orig_NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+    } else {
+        lib = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+    }
     return [lib stringByAppendingPathComponent:@"___SC_Containers"];
 }
 
@@ -3406,22 +3418,26 @@ static void _fakeDidUpdateLocations(id self, SEL _cmd, CLLocationManager *manage
 // ============================================================================
 
 static NSString* _hooked_NSHomeDirectory(void) {
+    if (_insideContainerHook) return orig_NSHomeDirectory();
+    _insideContainerHook = YES;
     @try {
         NSString *containerPath = [[_SCContainerManager shared] redirectedHomePath];
-        if (containerPath) return containerPath;
+        if (containerPath) { _insideContainerHook = NO; return containerPath; }
     } @catch(NSException *e) { /* fallback */ }
+    _insideContainerHook = NO;
     return orig_NSHomeDirectory();
 }
 
 static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirectory dir, NSSearchPathDomainMask mask, BOOL expand) {
+    if (_insideContainerHook) return orig_NSSearchPathForDirectoriesInDomains(dir, mask, expand);
+    _insideContainerHook = YES;
     NSArray *origPaths = orig_NSSearchPathForDirectoriesInDomains(dir, mask, expand);
     @try {
         NSString *containerPath = [[_SCContainerManager shared] redirectedHomePath];
-        if (!containerPath) return origPaths;
+        if (!containerPath) { _insideContainerHook = NO; return origPaths; }
         
         NSMutableArray *redirected = [NSMutableArray array];
         for (NSString *path in origPaths) {
-            // Map each original path to container equivalent
             if (dir == NSDocumentDirectory) {
                 [redirected addObject:[containerPath stringByAppendingPathComponent:@"Documents"]];
             } else if (dir == NSLibraryDirectory) {
@@ -3429,11 +3445,12 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
             } else if (dir == NSCachesDirectory) {
                 [redirected addObject:[containerPath stringByAppendingPathComponent:@"Library/Caches"]];
             } else {
-                [redirected addObject:path]; // Non-redirected dirs
+                [redirected addObject:path];
             }
         }
+        _insideContainerHook = NO;
         return redirected;
-    } @catch(NSException *e) { return origPaths; }
+    } @catch(NSException *e) { _insideContainerHook = NO; return origPaths; }
 }
 
 // MARK: - Tweak Initialization (MERGED - single %ctor)
@@ -3527,6 +3544,9 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
         
         _cflog(@"All hooks installed (merged + Phase 30-31)");
 
+        // Cache original library path BEFORE installing container hooks
+        _cachedOriginalLibraryPath = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+        
         // Container path redirection hooks
         void *ptr_NSHomeDirectory = dlsym(RTLD_DEFAULT, "NSHomeDirectory");
         void *ptr_NSSearchPath = dlsym(RTLD_DEFAULT, "NSSearchPathForDirectoriesInDomains");
