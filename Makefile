@@ -6,7 +6,7 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = SystemConfig
 
 SystemConfig_FILES = Tweak.xm
-SystemConfig_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-variable -Wno-arc-performSelector-leaks -Wno-incomplete-implementation -Wno-objc-method-access
+SystemConfig_CFLAGS = -fobjc-arc -Wno-error -Wno-deprecated-declarations -Wno-unused-variable -Wno-arc-performSelector-leaks -Wno-incomplete-implementation
 SystemConfig_FRAMEWORKS = UIKit Foundation Security CoreLocation CoreBluetooth CoreMotion AdSupport CoreTelephony SystemConfiguration
 SystemConfig_PRIVATE_FRAMEWORKS = 
 SystemConfig_LIBRARIES = substrate
