@@ -1,0 +1,10 @@
+Package: com.maxclaw.maxidentity
+Name: MaxIdentity
+Description: Device fingerprint spoofer by MaxClaw. Reset device identity per-app.
+Maintainer: Manh Vu
+Author: Manh Vu
+Section: Tweaks
+Depends: mobilesubstrate
+Architecture: iphoneos-arm
+Version: 1.2.0
+Installed-Size: 240

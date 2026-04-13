@@ -1,0 +1,140 @@
+Đánh giá SystemConfig.dylib – Tập trung vào FAKE vs REAL
+1. Phân loại chất lượng hook
+Hook	Method	Status	Fake/Real	Chi tiết / Vấn đề
+UIDevice systemVersion	ObjC	✅	Transparent	Lấy từ settings, chỉ fake khi toggle ON. Khớp với Darwin version trong database.
+UIDevice model	ObjC	✅	Transparent	Đồng bộ với sysctlbyname("hw.machine") vì cùng dùng settings[@"deviceModel"].
+UIDevice identifierForVendor	ObjC	✅	Transparent	Dùng UUID ổn định lưu NSUserDefaults. Toggle keychain không ảnh hưởng.
+UIDevice batteryLevel	ObjC	⚠️	Detectable	Fake level 25‑95% nhưng không tương quan với trạng thái sạc. App có thể phát hiện nếu level > 0 mà không cắm sạc nhưng state Unplugged.
+UIDevice batteryState	ObjC	⚠️	Detectable	Luôn trả Unplugged, dù level fake. Có thể không khớp với trạng thái sạc thực (pin thật đang sạc).
+NSBundle infoDictionary (main)	ObjC	✅	Transparent	Không fake mainBundle để tránh lỗi version. Đúng thiết kế.
+NSProcessInfo physicalMemory	ObjC	🔴	Obvious	Fake nhưng không hook sysctl hw.physmem, app có thể so sánh → phát hiện ngay.
+NSProcessInfo systemUptime	ObjC	✅	Transparent	Dùng fake boot time để tính uptime, nhất quán với kern.boottime.
+NSProcessInfo processorCount	ObjC	⚠️	Detectable	Luôn trả 6, không khớp với model cũ (iPhone 8 có 2 core). Nếu model cũ nhưng core 6 sẽ lộ.
+NSFileManager attributesOfFileSystemForPath	ObjC	⚠️	Detectable	Fake disk, nhưng không hook statfs → app dùng statfs lấy dung lượng thật.
+NSFileManager attributesOfItemAtPath	ObjC	⚠️	Detectable	Chỉ fake ngày tạo cho app bundle. Có thể dùng để kiểm tra tính nhất quán với keychain/IDFV.
+ASIdentifierManager advertisingIdentifier	ObjC	✅	Transparent	Dùng UUID ổn định. Toggle idfa ảnh hưởng.
+NSLocale currentLocale	ObjC	✅	Transparent	Trả về instance với localeIdentifier fake. Các method khác (countryCode) sẽ dựa trên locale đó.
+NSTimeZone localTimeZone	ObjC	✅	Transparent	Trả về timeZone với tên fake. Nhất quán với locale.
+CTCarrier carrierName	ObjC	✅	Transparent	Fake theo locale chọn. Có thể khớp MCC/MNC (cùng lấy từ settings).
+CTCarrier mobileCountryCode / mobileNetworkCode	ObjC	✅	Transparent	Đồng bộ với carrierName. Tuy nhiên, app có thể check allowsVOIP luôn trả YES, không phù hợp với mọi carrier.
+CTTelephonyNetworkInfo currentRadioAccessTechnology	ObjC	⚠️	Detectable	Luôn trả CTRadioAccessTechnologyLTE, dù model fake là iPhone 16 hỗ trợ 5G.
+UIScreen bounds / nativeBounds	ObjC	✅	Transparent	Dùng cùng scale, nhất quán.
+UIScreen isCaptured	ObjC	⚠️	Detectable	Fake NO, nhưng app có thể dùng UIScreen.captured (iOS 11+) để kiểm tra, đã hook.
+UIPasteboard (all methods)	ObjC	🔧	Detectable	Trả về rỗng, có thể gây crash nếu app kỳ vọng có dữ liệu. Làm sạch clipboard → mất trải nghiệm nhưng ẩn fingerprint.
+DCDevice isSupported	ObjC	⚠️	Detectable	Trả NO khi toggle hardwareInfo. Có thể gây lỗi nếu app dùng DeviceCheck.
+DCAppAttestService isSupported	ObjC	⚠️	Detectable	Tương tự, trả NO.
+CLLocationManager location	ObjC	🔴	Obvious	Chỉ hook property, không hook delegate. App nhận location thật qua delegate → lộ GPS thật.
+UITouch force / majorRadius	ObjC	⚠️	Detectable	Fake giá trị cố định ± nhiễu nhỏ. App có thể so sánh với maximumPossibleForce (cũng fake) → vẫn nhất quán, nhưng giá trị lệch so với thiết bị thật.
+CMMotionManager isAccelerometerActive	ObjC	🔴	Obvious	Chỉ block trạng thái active, không fake dữ liệu → sensor fingerprint vẫn lộ.
+AVAudioSession availableInputs	ObjC	⚠️	Detectable	Chỉ giữ lại input đầu tiên. Số lượng input có thể không khớp với thiết bị thật.
+PHFetchResult count	ObjC	⚠️	Detectable	Fake số lượng ảnh, nhưng nếu app lấy ảnh cụ thể sẽ thấy ảnh thật, tạo mâu thuẫn.
+NSURLSession dataTaskWithRequest (completion)	ObjC	⚠️	Detectable	Block một số domain, trả về fake response 200 với data rỗng. SDK có thể phát hiện do format sai.
+sysctlbyname	C (MSHook)	✅	Transparent	Fake hw.machine, kern.osrelease, hw.ncpu, hw.cputype, kern.boottime. Tuy nhiên không hook sysctl bằng OID số → lỗ hổng lớn.
+uname	C	✅	Transparent	Fake machine, release.
+getifaddrs	C	✅	Transparent	Fake IP trên en0. Không hook getifaddrs cho IPv6.
+stat / access / fopen / lstat	C	✅	Transparent	Block JB paths dựa trên từ khoá. Có thể thiếu một số path mới.
+ptrace	C	✅	Transparent	Block PT_DENY_ATTACH.
+fork	C	✅	Transparent	Trả về -1.
+getenv	C	✅	Transparent	Lọc DYLD_*.
+dladdr	C	⚠️	Detectable	Che dấu tên dylib nhưng không thể che địa chỉ hàm nếu app so sánh địa chỉ gốc.
+_dyld_get_image_name	C (%hookf)	⚠️	Detectable	Thay tên JB dylib thành system lib, nhưng không hook _dyld_image_count → app vẫn thấy số lượng image tăng.
+dlopen	C (%hookf)	✅	Transparent	Chỉ block vài lib cụ thể, không block toàn bộ → an toàn.
+getuid / geteuid	C (%hookf)	✅	Transparent	Trả 501.
+SecItemCopyMatching / Add / Delete	C (MSHook)	✅	Transparent	Toggle keychain → trả về không tìm thấy. Có thể gây lỗi nếu app không xử lý.
+SDK hooks (AppsFlyer, Adjust, etc.)	ObjC	⚠️	Detectable	Trả UUID ổn định. Nếu app dùng nhiều SDK, mỗi SDK nhận ID riêng → có thể phát hiện nếu so sánh chéo (nhưng thường không).
+2. Consistency Matrix – Những cặp thông số KHÔNG nhất quán
+Thông số A	Thông số B	Nhất quán?	Giải thích / Hậu quả
+hw.physmem (sysctl)	NSProcessInfo.physicalMemory	❌ KHÔNG	hw.physmem không được hook → app so sánh sẽ thấy RAM thật và RAM fake khác nhau. Phát hiện rõ ràng.
+hw.machine (sysctl)	UIDevice.model	✅ Có	Cùng dùng settings[@"deviceModel"].
+kern.osrelease (sysctl)	UIDevice.systemVersion	✅ Có	Được fake từ cùng database (iOS 18 → Darwin 24).
+kern.boottime (sysctl)	NSProcessInfo.systemUptime	✅ Có	Boot time fake, uptime = now - boot.
+hw.ncpu (sysctl)	NSProcessInfo.processorCount	✅ Có	Cả hai đều fake thành 6. Nhưng nếu model cũ (iPhone 8) core thật là 2, app biết model fake → lộ.
+hw.cputype	hw.machine	✅ Có	Cả hai fake theo ARM64.
+UIScreen.nativeBounds × UIScreen.scale	UIScreen.bounds	✅ Có	Code tính bounds = nativeBounds / scale.
+totalDiskSpace (fake)	freeDiskSpace (fake)	⚠️ Có thể không	Được random từ storageOptions, free = 30‑70% total → hợp lý. Nhưng statfs trả về giá trị thật → mâu thuẫn.
+carrierName	mcc / mnc	✅ Có	Được lấy từ cùng localeData.
+carrierName	currentRadioAccessTechnology	❌ KHÔNG	CTRadioAccessTechnologyLTE được fake, nhưng nếu carrier là 5G thì mâu thuẫn.
+locale	timezone	✅ Có	Lấy từ cùng localeData.
+batteryLevel	batteryState	⚠️ Có thể không	Level fake có thể cao nhưng state luôn Unplugged – nếu pin đang sạc thật, app thấy mâu thuẫn.
+deviceModel	UIDevice.batteryLevel	⚠️ Có thể không	Model fake (iPhone 16) nhưng batteryLevel có thể thấp hơn mức thực tế của model đó. Không ảnh hưởng lớn.
+Jailbreak file check	dyld image count	❌ KHÔNG	File check bị block, nhưng _dyld_image_count không hook → app thấy số lượng image tăng (do có SystemConfig.dylib) → phát hiện.
+Location via property	Location via delegate	❌ KHÔNG	Delegate nhận location thật, property trả fake → app phát hiện ngay nếu so sánh.
+3. Các phương pháp phát hiện app CÓ THỂ dùng (chưa được cover)
+Phương pháp	Đã cover?	Ghi chú
+sysctl bằng OID số (không qua tên)	❌ Không	sysctl() với CTL_HW, HW_PHYSMEM, HW_MEMSIZE... không được hook.
+IOKit (IORegistryEntryCreateCFProperty)	❌ Không	App có thể đọc serial, model gốc, battery, v.v.
+statfs / statvfs	❌ Không	Dùng để lấy dung lượng đĩa thật.
+CoreTelephony C APIs (CTTelephonyNetworkInfoCopyCurrentRadioAccessTechnology)	❌ Không	Vẫn trả về radio thật.
+Mach time / clock_gettime	❌ Không	Đo uptime thật, không phụ thuộc vào kern.boottime.
+Đo thời gian thực thi hook	❌ Không	Hàm hook chậm hơn nguyên bản, có thể phát hiện qua profiling.
+Kiểm tra địa chỉ hàm (dladdr)	⚠️ Một phần	dladdr đã hook, nhưng nếu app tự tính offset từ image gốc, vẫn phát hiện.
+Kiểm tra checksum của dylib	❌ Không	App có thể hash file SystemConfig.dylib và so sánh.
+Kiểm tra method swizzle	❌ Không	App có thể kiểm tra class_getMethodImplementation so với IMP gốc.
+Phát hiện hook qua lỗi errno	⚠️ Một phần	Một số hook set errno = ENOENT, nhưng chưa kiểm tra toàn bộ trường hợp.
+Kiểm tra tính toàn vẹn của dyld_shared_cache	❌ Không	App có thể so sánh các image đã load.
+Phát hiện thông qua cross‑process fingerprint	❌ Không	App có thể giao tiếp với app khác để so sánh fingerprint (vd: nhà phát triển có nhiều app).
+4. Điểm yếu lớn nhất
+Thiếu hook sysctl bằng số → app dễ dàng lấy RAM thật, CPU thật.
+
+Delegate location không được hook → lộ GPS thật qua didUpdateLocations.
+
+_dyld_image_count không hook → phát hiện số lượng image tăng.
+
+CMMotionManager không fake dữ liệu → sensor fingerprint lộ.
+
+Thiếu nhất quán giữa radio tech và carrier/model (luôn LTE dù fake model 5G).
+
+statfs/statvfs lấy dung lượng đĩa thật, mâu thuẫn với fake.
+
+5. Crash Risks & Lỗi tiềm ẩn
+Trong C hooks: thiếu @try/@catch, nếu có exception sẽ crash. Nhưng các hook này đơn giản, ít rủi ro.
+
+Keychain hooks: trả về errSecItemNotFound có thể làm app không xử lý được và crash.
+
+UIPasteboard hooks: trả về rỗng, app có thể crash nếu kỳ vọng dữ liệu.
+
+NSURLSession fake response: nếu SDK mong đợi JSON nhưng nhận data rỗng, có thể crash.
+
+Swizzle push token: chỉ swizzle nếu delegate có method đó, nếu không có thì không sao.
+
+dlopen hook: chỉ block vài lib, nhưng nếu app cần load lib đó và không kiểm tra NULL, sẽ crash.
+
+_dyld_get_image_name trả về con trỏ tĩnh, an toàn.
+
+6. So sánh với các công cụ tương tự
+Công cụ	Điểm mạnh	Điểm yếu so với SystemConfig
+Liberty Lite	Nhẹ, ổn định, chỉ bypass JB detection	Không fake fingerprint sâu, không che được RAM, disk, location.
+Shadow	Tương tự Liberty, hỗ trợ nhiều app	Không fake toàn diện như SystemConfig.
+vnodebypass	Bypass file system check, rất mạnh	Chỉ bypass file, không fake ID.
+Frida + script	Linh hoạt, có thể fake mọi thứ	Cần Frida server, dễ bị phát hiện, không phù hợp cho người dùng cuối.
+Xposed (Android)	Có thể fake nhiều thông số, nhưng cũng dễ lộ	SystemConfig cố gắng fake sâu hơn nhiều API nhưng vẫn còn lỗ hổng.
+SystemConfig có phạm vi fake rất rộng, nhưng chất lượng từng hook không đồng đều. Nếu khắc phục các điểm yếu lớn, nó có thể vượt trội hơn hẳn.
+
+7. Đánh giá Makefile & Plist
+Makefile: Đủ frameworks, flags ổn. Nên thêm -Wno-nullability-completeness nếu cần. Kiểm tra Theos path.
+
+FakeInfo.plist: Filter bằng com.apple.UIKit → inject vào tất cả app dùng UIKit. Đúng ý đồ. Nhưng có thể gây conflict nếu app có tweak khác.
+
+Thiếu framework: Có thể thêm IOKit.framework nếu muốn hook IOKit trong tương lai.
+
+8. Tóm tắt các lỗ hổng cần ưu tiên sửa
+Hook sysctl bằng số (qua sysctl và sysctlbyname với CTL_HW).
+
+Hook CLLocationManagerDelegate hoặc override location để trả về fake cho cả delegate.
+
+Hook _dyld_image_count để trả về số lượng image ít hơn (hoặc giảm bớt).
+
+Hook statfs, statvfs để đồng bộ disk với fake.
+
+Hook CTTelephonyNetworkInfo C API để fake radio tech.
+
+Thêm hook cho CMMotionManager để fake dữ liệu accelerometer/gyro.
+
+Đảm bảo tính nhất quán: RAM fake phải khớp với model (từ deviceSpecs) và không để lộ qua sysctl.
+
+9. Kết luận
+SystemConfig.dylib là một nỗ lực rất lớn để thực hiện “virtual factory reset” trên iOS. Nó đã hook được rất nhiều API quan trọng, đặc biệt là các C functions và ObjC hooks. Tuy nhiên, do thiếu một số hook sâu và thiếu nhất quán, nhiều thông tin vẫn có thể bị lộ, đặc biệt là qua sysctl bằng số, location delegate, và dyld image count.
+
+Nếu các lỗ hổng trên được khắc phục, đây sẽ là một công cụ mạnh nhất trong loại hình này trên iOS hiện tại. Nhưng với hiện trạng, app có kinh nghiệm chống gian lận vẫn có thể phát hiện thông qua các kỹ thuật nêu trên.
+
+Khuyến nghị: Tập trung vào việc bổ sung các hook còn thiếu và tăng cường tính nhất quán trước khi sử dụng trong môi trường yêu cầu bảo mật cao.
