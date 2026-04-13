@@ -49,6 +49,10 @@ Class* _objc_copyClassList_handler(unsigned int *outCount);  // forward decl
 // C-safe flag for hooks that run before ObjC is ready
 static BOOL gJailbreakHidingEnabled = NO;
 
+// Container path redirection hooks (Crane-inspired)
+static NSString* (*orig_NSHomeDirectory)(void) = NULL;
+static NSArray* (*orig_NSSearchPathForDirectoriesInDomains)(NSSearchPathDirectory, NSSearchPathDomainMask, BOOL) = NULL;
+
 // Keychain hooks
 static OSStatus (*orig_SecItemCopyMatching_ptr)(CFDictionaryRef query, CFTypeRef *result) = NULL;
 static OSStatus (*orig_SecItemAdd_ptr)(CFDictionaryRef attributes, CFTypeRef *result) = NULL;
@@ -3397,6 +3401,41 @@ static void _fakeDidUpdateLocations(id self, SEL _cmd, CLLocationManager *manage
 }
 %end
 
+// ============================================================================
+// MARK: - Container Path Redirection Hooks
+// ============================================================================
+
+static NSString* _hooked_NSHomeDirectory(void) {
+    @try {
+        NSString *containerPath = [[_SCContainerManager shared] redirectedHomePath];
+        if (containerPath) return containerPath;
+    } @catch(NSException *e) { /* fallback */ }
+    return orig_NSHomeDirectory();
+}
+
+static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirectory dir, NSSearchPathDomainMask mask, BOOL expand) {
+    NSArray *origPaths = orig_NSSearchPathForDirectoriesInDomains(dir, mask, expand);
+    @try {
+        NSString *containerPath = [[_SCContainerManager shared] redirectedHomePath];
+        if (!containerPath) return origPaths;
+        
+        NSMutableArray *redirected = [NSMutableArray array];
+        for (NSString *path in origPaths) {
+            // Map each original path to container equivalent
+            if (dir == NSDocumentDirectory) {
+                [redirected addObject:[containerPath stringByAppendingPathComponent:@"Documents"]];
+            } else if (dir == NSLibraryDirectory) {
+                [redirected addObject:[containerPath stringByAppendingPathComponent:@"Library"]];
+            } else if (dir == NSCachesDirectory) {
+                [redirected addObject:[containerPath stringByAppendingPathComponent:@"Library/Caches"]];
+            } else {
+                [redirected addObject:path]; // Non-redirected dirs
+            }
+        }
+        return redirected;
+    } @catch(NSException *e) { return origPaths; }
+}
+
 // MARK: - Tweak Initialization (MERGED - single %ctor)
 %ctor {
     @autoreleasepool {
@@ -3487,6 +3526,21 @@ static void _fakeDidUpdateLocations(id self, SEL _cmd, CLLocationManager *manage
         if (ptr_objc_copyClassList) MSHookFunction(ptr_objc_copyClassList, (void *)_objc_copyClassList_handler, (void **)&orig_objc_copyClassList_ptr);
         
         _cflog(@"All hooks installed (merged + Phase 30-31)");
+
+        // Container path redirection hooks
+        void *ptr_NSHomeDirectory = dlsym(RTLD_DEFAULT, "NSHomeDirectory");
+        void *ptr_NSSearchPath = dlsym(RTLD_DEFAULT, "NSSearchPathForDirectoriesInDomains");
+        if (ptr_NSHomeDirectory) MSHookFunction(ptr_NSHomeDirectory, (void *)_hooked_NSHomeDirectory, (void **)&orig_NSHomeDirectory);
+        if (ptr_NSSearchPath) MSHookFunction(ptr_NSSearchPath, (void *)_hooked_NSSearchPathForDirectoriesInDomains, (void **)&orig_NSSearchPathForDirectoriesInDomains);
+        _cflog(@"Container path hooks installed");
+
+        // Initialize container system
+        _SCContainerManager *cm = [_SCContainerManager shared];
+        NSString *cPath = [cm redirectedHomePath];
+        if (cPath) {
+            setenv("CFFIXED_USER_HOME", [cPath UTF8String], 1);
+            _cflog(@"Container active: %@ path: %@", [cm activeContainerID], cPath);
+        }
         
         // Delay setup until the app is ready.
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
