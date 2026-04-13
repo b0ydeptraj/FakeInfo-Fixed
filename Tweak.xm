@@ -237,12 +237,15 @@ static NSString* generateStableUUID(NSString *key) {
     // Prefix key with container seed → different UUID per container
     NSString *containerKey = key;
     @try {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
         Class cmClass = NSClassFromString(@"_SCContainerManager");
         if (cmClass) {
             id mgr = [cmClass performSelector:@selector(shared)];
             NSString *seed = [mgr performSelector:@selector(containerSeed)];
             if (seed) containerKey = [NSString stringWithFormat:@"%@_%@", seed, key];
         }
+#pragma clang diagnostic pop
     } @catch(NSException *e) { /* container not ready yet */ }
     return getStableCachedValue(containerKey, ^{
         return [[NSUUID UUID] UUIDString];
