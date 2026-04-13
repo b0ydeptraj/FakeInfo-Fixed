@@ -49,6 +49,9 @@ Class* _objc_copyClassList_handler(unsigned int *outCount);  // forward decl
 // C-safe flag for hooks that run before ObjC is ready
 static BOOL gJailbreakHidingEnabled = NO;
 
+// Forward declaration for container manager (full definition after _UIDeviceConfig)
+@class _SCContainerManager;
+
 // Container path redirection hooks (Crane-inspired)
 static NSString* (*orig_NSHomeDirectory)(void) = NULL;
 static NSArray* (*orig_NSSearchPathForDirectoriesInDomains)(NSSearchPathDirectory, NSSearchPathDomainMask, BOOL) = NULL;
@@ -234,8 +237,12 @@ static NSString* generateStableUUID(NSString *key) {
     // Prefix key with container seed → different UUID per container
     NSString *containerKey = key;
     @try {
-        NSString *seed = [[_SCContainerManager shared] containerSeed];
-        if (seed) containerKey = [NSString stringWithFormat:@"%@_%@", seed, key];
+        Class cmClass = NSClassFromString(@"_SCContainerManager");
+        if (cmClass) {
+            id mgr = [cmClass performSelector:@selector(shared)];
+            NSString *seed = [mgr performSelector:@selector(containerSeed)];
+            if (seed) containerKey = [NSString stringWithFormat:@"%@_%@", seed, key];
+        }
     } @catch(NSException *e) { /* container not ready yet */ }
     return getStableCachedValue(containerKey, ^{
         return [[NSUUID UUID] UUIDString];
