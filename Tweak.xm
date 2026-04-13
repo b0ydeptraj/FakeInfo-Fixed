@@ -303,7 +303,6 @@ void CrashHandler(int sig) {
 - (void)restoreConfig;
 - (void)persistConfig;
 - (void)clearConfig;
-- (void)applyRandomConfig;
 @property (nonatomic, strong) NSMutableDictionary *settings;
 @property (nonatomic, strong) NSMutableDictionary *toggles;
 @property (nonatomic, strong) NSDictionary *baselineConfig;
