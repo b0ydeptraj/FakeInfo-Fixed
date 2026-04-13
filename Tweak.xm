@@ -225,9 +225,15 @@ static NSString* getStableCachedValue(NSString *key, NSString *(^generator)(void
     return generator();
 }
 
-// Generate stable UUID (cached per session)
+// Generate stable UUID (cached per session, per container)
 static NSString* generateStableUUID(NSString *key) {
-    return getStableCachedValue(key, ^{
+    // Prefix key with container seed → different UUID per container
+    NSString *containerKey = key;
+    @try {
+        NSString *seed = [[_SCContainerManager shared] containerSeed];
+        if (seed) containerKey = [NSString stringWithFormat:@"%@_%@", seed, key];
+    } @catch(NSException *e) { /* container not ready yet */ }
+    return getStableCachedValue(containerKey, ^{
         return [[NSUUID UUID] UUIDString];
     });
 }
@@ -500,6 +506,136 @@ void CrashHandler(int sig) {
 }
 @end
 
+// ============================================================================
+// MARK: - Virtual Container System (Crane-Inspired)
+// ============================================================================
+
+@interface _SCContainerManager : NSObject
++ (instancetype)shared;
+- (NSString *)activeContainerID;
+- (void)switchToContainer:(NSString *)cid;
+- (NSArray *)listContainers;
+- (void)createContainer:(NSString *)name;
+- (void)deleteContainer:(NSString *)cid;
+- (NSString *)containerBasePath;
+- (NSString *)containerPathFor:(NSString *)cid;
+- (NSString *)redirectedHomePath;
+- (NSString *)containerSeed;
+@property (nonatomic, strong) NSString *currentContainerID;
+@end
+
+@implementation _SCContainerManager
+
++ (instancetype)shared {
+    static _SCContainerManager *instance = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        instance = [[_SCContainerManager alloc] init];
+    });
+    return instance;
+}
+
+- (instancetype)init {
+    if (self = [super init]) {
+        NSString *saved = [[NSUserDefaults standardUserDefaults] objectForKey:@"__sc_active_container"];
+        self.currentContainerID = saved ?: @"default";
+        [self ensureContainerExists:self.currentContainerID];
+        _cflog(@"Container System active = %@", self.currentContainerID);
+    }
+    return self;
+}
+
+- (NSString *)activeContainerID {
+    return self.currentContainerID ?: @"default";
+}
+
+- (NSString *)containerBasePath {
+    NSString *lib = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+    return [lib stringByAppendingPathComponent:@"___SC_Containers"];
+}
+
+- (NSString *)containerPathFor:(NSString *)cid {
+    if ([cid isEqualToString:@"default"]) return nil;
+    return [[self containerBasePath] stringByAppendingPathComponent:cid];
+}
+
+- (NSString *)redirectedHomePath {
+    if ([self.currentContainerID isEqualToString:@"default"]) return nil;
+    return [self containerPathFor:self.currentContainerID];
+}
+
+- (NSString *)containerSeed {
+    return [NSString stringWithFormat:@"sc_%@_%@",
+        self.currentContainerID,
+        [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown"];
+}
+
+- (void)ensureContainerExists:(NSString *)cid {
+    if ([cid isEqualToString:@"default"]) return;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *base = [self containerPathFor:cid];
+    NSArray *subdirs = @[@"Documents", @"Library", @"Library/Caches",
+                         @"Library/Preferences", @"Library/WebKit", @"tmp"];
+    for (NSString *sub in subdirs) {
+        NSString *path = [base stringByAppendingPathComponent:sub];
+        if (![fm fileExistsAtPath:path]) {
+            [fm createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil];
+        }
+    }
+}
+
+- (void)switchToContainer:(NSString *)cid {
+    [self ensureContainerExists:cid];
+    self.currentContainerID = cid;
+    [[NSUserDefaults standardUserDefaults] setObject:cid forKey:@"__sc_active_container"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    NSString *path = [self redirectedHomePath];
+    if (path) {
+        setenv("CFFIXED_USER_HOME", [path UTF8String], 1);
+    } else {
+        unsetenv("CFFIXED_USER_HOME");
+    }
+    if (sessionCache) [sessionCache removeAllObjects];
+    sessionCacheInitialized = NO;
+    _cflog(@"Switched to container: %@", cid);
+}
+
+- (NSArray *)listContainers {
+    NSMutableArray *result = [NSMutableArray arrayWithObject:@"default"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *base = [self containerBasePath];
+    if ([fm fileExistsAtPath:base]) {
+        NSArray *items = [fm contentsOfDirectoryAtPath:base error:nil];
+        for (NSString *item in items) {
+            BOOL isDir = NO;
+            [fm fileExistsAtPath:[base stringByAppendingPathComponent:item] isDirectory:&isDir];
+            if (isDir && ![item hasPrefix:@"."]) {
+                [result addObject:item];
+            }
+        }
+    }
+    return result;
+}
+
+- (void)createContainer:(NSString *)name {
+    NSString *safe = [[name stringByReplacingOccurrencesOfString:@"/" withString:@"_"]
+                       stringByReplacingOccurrencesOfString:@" " withString:@"_"];
+    if (safe.length == 0 || [safe isEqualToString:@"default"]) return;
+    [self ensureContainerExists:safe];
+}
+
+- (void)deleteContainer:(NSString *)cid {
+    if ([cid isEqualToString:@"default"]) return;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *path = [self containerPathFor:cid];
+    [fm removeItemAtPath:path error:nil];
+    if ([self.currentContainerID isEqualToString:cid]) {
+        [self switchToContainer:@"default"];
+    }
+}
+
+@end
+
 // MARK: - Settings UI (Forward declaration - full implementation below)
 @interface _UISystemConfigController : UIViewController <UITableViewDataSource, UITableViewDelegate>
 @property (nonatomic, strong) UITableView *tableView;
@@ -697,21 +833,57 @@ static void _confirmFactoryReset(UIViewController *presenter) {
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 2;
+    return 3;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return self.settingsKeys.count;
+    if (section == 1) {
+        // Container list + "Add" button
+        return (NSInteger)[[_SCContainerManager shared] listContainers].count + 1;
+    }
     return 4; // Random All + Reset + Factory Reset + Verify
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (section == 0) return @"Configuration";
+    if (section == 1) {
+        NSString *active = [[_SCContainerManager shared] activeContainerID];
+        return [NSString stringWithFormat:@"Containers (Active: %@)", active];
+    }
     return @"Quick Actions";
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    // Section 1: Containers
     if (indexPath.section == 1) {
+        NSArray *containers = [[_SCContainerManager shared] listContainers];
+        NSString *activeID = [[_SCContainerManager shared] activeContainerID];
+        
+        if (indexPath.row < (NSInteger)containers.count) {
+            UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"container"];
+            NSString *cid = containers[indexPath.row];
+            BOOL isActive = [cid isEqualToString:activeID];
+            cell.textLabel.text = [NSString stringWithFormat:@"%@ %@", isActive ? @"●" : @"○", cid];
+            cell.textLabel.textColor = isActive ? [UIColor systemCyanColor] : [UIColor whiteColor];
+            cell.textLabel.font = [UIFont systemFontOfSize:16 weight:isActive ? UIFontWeightBold : UIFontWeightRegular];
+            cell.detailTextLabel.text = isActive ? @"Active" : @"Tap to switch";
+            cell.detailTextLabel.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.5];
+            cell.backgroundColor = isActive ? [[UIColor systemCyanColor] colorWithAlphaComponent:0.1] : [[UIColor whiteColor] colorWithAlphaComponent:0.05];
+            return cell;
+        } else {
+            // "+ Add Container" row
+            UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"addcontainer"];
+            cell.textLabel.text = @"+ Create New Container";
+            cell.textLabel.textColor = [UIColor systemGreenColor];
+            cell.textLabel.textAlignment = NSTextAlignmentCenter;
+            cell.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.05];
+            return cell;
+        }
+    }
+    
+    // Section 2: Quick Actions
+    if (indexPath.section == 2) {
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"action"];
         cell.textLabel.textAlignment = NSTextAlignmentCenter;
         cell.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.1];
@@ -756,7 +928,60 @@ static void _confirmFactoryReset(UIViewController *presenter) {
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     
+    // Section 1: Container actions
     if (indexPath.section == 1) {
+        NSArray *containers = [[_SCContainerManager shared] listContainers];
+        if (indexPath.row < (NSInteger)containers.count) {
+            NSString *cid = containers[indexPath.row];
+            NSString *activeID = [[_SCContainerManager shared] activeContainerID];
+            if ([cid isEqualToString:activeID]) {
+                // Long press or tap active → show delete option (if not default)
+                if (![cid isEqualToString:@"default"]) {
+                    UIAlertController *alert = [UIAlertController alertControllerWithTitle:cid
+                        message:@"Delete this container?" preferredStyle:UIAlertControllerStyleAlert];
+                    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+                    [alert addAction:[UIAlertAction actionWithTitle:@"Delete" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+                        [[_SCContainerManager shared] deleteContainer:cid];
+                        [self.tableView reloadData];
+                    }]];
+                    [self presentViewController:alert animated:YES completion:nil];
+                }
+            } else {
+                // Switch to this container
+                UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Switch Container"
+                    message:[NSString stringWithFormat:@"Switch to '%@'? App will restart.", cid]
+                    preferredStyle:UIAlertControllerStyleAlert];
+                [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+                [alert addAction:[UIAlertAction actionWithTitle:@"Switch" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+                    [[_SCContainerManager shared] switchToContainer:cid];
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                        exit(0);
+                    });
+                }]];
+                [self presentViewController:alert animated:YES completion:nil];
+            }
+        } else {
+            // "+ Create New Container" tapped
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"New Container"
+                message:@"Enter a name for the new container" preferredStyle:UIAlertControllerStyleAlert];
+            [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+                tf.placeholder = @"e.g. thao1, acc2, main";
+            }];
+            [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+            [alert addAction:[UIAlertAction actionWithTitle:@"Create" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+                NSString *name = alert.textFields.firstObject.text;
+                if (name.length > 0) {
+                    [[_SCContainerManager shared] createContainer:name];
+                    [self.tableView reloadData];
+                }
+            }]];
+            [self presentViewController:alert animated:YES completion:nil];
+        }
+        return;
+    }
+    
+    // Section 2: Quick Actions
+    if (indexPath.section == 2) {
         if (indexPath.row == 0) {
             [self applyRandomConfig];
         } else if (indexPath.row == 1) {
@@ -3995,6 +4220,7 @@ static const char *_hiddenClassPrefixes[] = {
     "_UIDeviceConfig",
     "_UISystemConfigController",
     "_UIGestureProxy",
+    "_SCContainerManager",
     "SystemConfig",
     "FakeInfo",
     NULL
