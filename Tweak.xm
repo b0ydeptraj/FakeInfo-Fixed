@@ -745,7 +745,11 @@ static void _executeFactoryReset(void) {
         dispatch_sync(dispatch_get_main_queue(), ^{
             if (sessionCache) [sessionCache removeAllObjects];
             sessionCacheInitialized = NO;
-            [[_UIDeviceConfig shared] applyRandomConfig];
+            Class ctrlClass = NSClassFromString(@"_UISystemConfigController");
+            if (ctrlClass) {
+                id ctrl = [[ctrlClass alloc] init];
+                [ctrl performSelector:@selector(applyRandomConfig)];
+            }
             [[_UIDeviceConfig shared] persistConfig];
         });
         _cflog(@"FACTORY RESET COMPLETE");
