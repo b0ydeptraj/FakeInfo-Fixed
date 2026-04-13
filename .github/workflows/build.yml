@@ -18,11 +18,11 @@ jobs:
 
     - name: Build Package
       run: |
+        set -o pipefail
         if [ -z "$THEOS" ]; then
           export THEOS=$HOME/theos
         fi
         echo "THEOS: $THEOS"
-        set -o pipefail
         make package FINALPACKAGE=1 2>&1 | tee build_output.log
 
     - name: Verify Architecture (arm64)
