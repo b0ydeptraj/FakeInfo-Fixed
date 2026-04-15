@@ -563,7 +563,13 @@ void CrashHandler(int sig) {
 }
 
 - (NSString *)containerBasePath {
-    NSString *lib = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+    // CRITICAL: Use orig_ to avoid infinite recursion through our hooked NSSearchPath
+    NSString *lib = nil;
+    if (orig_NSSearchPathForDirectoriesInDomains) {
+        lib = orig_NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+    } else {
+        lib = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+    }
     return [lib stringByAppendingPathComponent:@"___SC_Containers"];
 }
 
@@ -3418,7 +3424,10 @@ static void _fakeDidUpdateLocations(id self, SEL _cmd, CLLocationManager *manage
 // MARK: - Container Path Redirection Hooks
 // ============================================================================
 
+static BOOL _containerHooksReady = NO;
+
 static NSString* _hooked_NSHomeDirectory(void) {
+    if (!_containerHooksReady) return orig_NSHomeDirectory();
     @try {
         NSString *containerPath = [[_SCContainerManager shared] redirectedHomePath];
         if (containerPath) return containerPath;
@@ -3428,13 +3437,13 @@ static NSString* _hooked_NSHomeDirectory(void) {
 
 static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirectory dir, NSSearchPathDomainMask mask, BOOL expand) {
     NSArray *origPaths = orig_NSSearchPathForDirectoriesInDomains(dir, mask, expand);
+    if (!_containerHooksReady) return origPaths;
     @try {
         NSString *containerPath = [[_SCContainerManager shared] redirectedHomePath];
         if (!containerPath) return origPaths;
         
         NSMutableArray *redirected = [NSMutableArray array];
         for (NSString *path in origPaths) {
-            // Map each original path to container equivalent
             if (dir == NSDocumentDirectory) {
                 [redirected addObject:[containerPath stringByAppendingPathComponent:@"Documents"]];
             } else if (dir == NSLibraryDirectory) {
@@ -3442,7 +3451,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
             } else if (dir == NSCachesDirectory) {
                 [redirected addObject:[containerPath stringByAppendingPathComponent:@"Library/Caches"]];
             } else {
-                [redirected addObject:path]; // Non-redirected dirs
+                [redirected addObject:path];
             }
         }
         return redirected;
@@ -3540,20 +3549,27 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
         
         _cflog(@"All hooks installed (merged + Phase 30-31)");
 
-        // Container path redirection hooks
+        // Container: hook path functions FIRST (with guard OFF)
         void *ptr_NSHomeDirectory = dlsym(RTLD_DEFAULT, "NSHomeDirectory");
         void *ptr_NSSearchPath = dlsym(RTLD_DEFAULT, "NSSearchPathForDirectoriesInDomains");
         if (ptr_NSHomeDirectory) MSHookFunction(ptr_NSHomeDirectory, (void *)_hooked_NSHomeDirectory, (void **)&orig_NSHomeDirectory);
         if (ptr_NSSearchPath) MSHookFunction(ptr_NSSearchPath, (void *)_hooked_NSSearchPathForDirectoriesInDomains, (void **)&orig_NSSearchPathForDirectoriesInDomains);
-        _cflog(@"Container path hooks installed");
 
-        // Initialize container system
-        _SCContainerManager *cm = [_SCContainerManager shared];
-        NSString *cPath = [cm redirectedHomePath];
-        if (cPath) {
-            setenv("CFFIXED_USER_HOME", [cPath UTF8String], 1);
-            _cflog(@"Container active: %@ path: %@", [cm activeContainerID], cPath);
+        // Container: init manager (hooks are OFF via guard, so no recursion)
+        @try {
+            _SCContainerManager *cm = [_SCContainerManager shared];
+            NSString *cPath = [cm redirectedHomePath];
+            if (cPath) {
+                setenv("CFFIXED_USER_HOME", [cPath UTF8String], 1);
+                _cflog(@"Container active: %@ path: %@", [cm activeContainerID], cPath);
+            }
+        } @catch(NSException *e) {
+            _cflog(@"Container init failed: %@", e);
         }
+
+        // NOW enable container hooks (manager is ready)
+        _containerHooksReady = YES;
+        _cflog(@"Container system ready");
         
         // Delay setup until the app is ready.
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
