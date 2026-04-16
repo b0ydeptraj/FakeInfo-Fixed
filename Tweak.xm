@@ -3549,27 +3549,20 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
         
         _cflog(@"All hooks installed (merged + Phase 30-31)");
 
-        // Container: hook path functions FIRST (with guard OFF)
-        void *ptr_NSHomeDirectory = dlsym(RTLD_DEFAULT, "NSHomeDirectory");
-        void *ptr_NSSearchPath = dlsym(RTLD_DEFAULT, "NSSearchPathForDirectoriesInDomains");
-        if (ptr_NSHomeDirectory) MSHookFunction(ptr_NSHomeDirectory, (void *)_hooked_NSHomeDirectory, (void **)&orig_NSHomeDirectory);
-        if (ptr_NSSearchPath) MSHookFunction(ptr_NSSearchPath, (void *)_hooked_NSSearchPathForDirectoriesInDomains, (void **)&orig_NSSearchPathForDirectoriesInDomains);
+        // Container path hooks DISABLED - causes crash during app init
+        // TODO: implement safer lazy path redirection
+        // void *ptr_NSHomeDirectory = dlsym(RTLD_DEFAULT, "NSHomeDirectory");
+        // void *ptr_NSSearchPath = dlsym(RTLD_DEFAULT, "NSSearchPathForDirectoriesInDomains");
+        // if (ptr_NSHomeDirectory) MSHookFunction(...);
+        // if (ptr_NSSearchPath) MSHookFunction(...);
 
-        // Container: init manager (hooks are OFF via guard, so no recursion)
+        // Initialize container manager (for UI + fingerprint only)
         @try {
             _SCContainerManager *cm = [_SCContainerManager shared];
-            NSString *cPath = [cm redirectedHomePath];
-            if (cPath) {
-                setenv("CFFIXED_USER_HOME", [cPath UTF8String], 1);
-                _cflog(@"Container active: %@ path: %@", [cm activeContainerID], cPath);
-            }
+            _cflog(@"Container manager ready: %@", [cm activeContainerID]);
         } @catch(NSException *e) {
             _cflog(@"Container init failed: %@", e);
         }
-
-        // NOW enable container hooks (manager is ready)
-        _containerHooksReady = YES;
-        _cflog(@"Container system ready");
         
         // Delay setup until the app is ready.
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
