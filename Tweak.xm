@@ -3461,8 +3461,6 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 // MARK: - Tweak Initialization (MERGED - single %ctor)
 %ctor {
     @autoreleasepool {
-        %init()
-        // NOTE: %group CFunctionHooks is NOT initialized = no MSHookFunction crash
         NSString *bundleId = getRealBundleIdentifier();
         if ([bundleId hasPrefix:@"com.apple."]) {
             return;
@@ -3486,9 +3484,6 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 
         // ================================================================
         // ALL MSHookFunction calls DISABLED for TrollStore compatibility
-        // MSHookFunction crashes with KERN_PROTECTION_FAILURE on iOS 17+
-        // because CydiaSubstrate cannot modify shared cache memory pages.
-        // Only ObjC %hook (method swizzling) is safe on TrollStore.
         // ================================================================
 
         _cflog(@"ObjC hooks initialized (TrollStore safe mode)");
@@ -3874,95 +3869,23 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
 // _dyld_image_count â€” subtract a fixed number of JB images
 // NOTE: Cannot call _dyld_get_image_name here (it's hooked = circular crash)
 // Instead, subtract a safe fixed count based on typical JB injection
-%group CFunctionHooks
-// WARNING: This group is NOT %init'd - MSHookFunction crashes on TrollStore
-
-%hookf(uint32_t, _dyld_image_count) {
-    uint32_t count = %orig;
-    if (gJailbreakHidingEnabled && count > 3) {
-        return count - 3; // Typical: substrate + tweakloader + this dylib
-    }
-    return count;
-}
 
 
 // _dyld_get_image_name hook - hide MobileSubstrate dylibs
 // SAFE: uses C static flag set in %ctor, NOT ObjC call (dyld runs before ObjC ready)
-%hookf(const char*, _dyld_get_image_name, uint32_t image_index) {
-    const char *name = %orig(image_index);
-    if (gJailbreakHidingEnabled && name) {
-        // Hide jailbreak-related dylib names
-        if (strstr(name, "MobileSubstrate") ||
-            strstr(name, "substrate") ||
-            strstr(name, "SubstrateLoader") ||
-            strstr(name, "TweakInject") ||
-            strstr(name, "Inject") ||
-            strstr(name, "Cycript") ||
-            strstr(name, "libhooker") ||
-            strstr(name, "substitute")) {
-            // Name hidden (no log - ObjC unsafe in dyld context)
-            // Return unique system lib path per index to avoid duplicate collision
-            static const char *sysLibs[] = {
-                "/usr/lib/system/libsystem_c.dylib",
-                "/usr/lib/system/libsystem_kernel.dylib",
-                "/usr/lib/system/libsystem_platform.dylib",
-                "/usr/lib/system/libsystem_pthread.dylib",
-                "/usr/lib/system/libsystem_malloc.dylib",
-                "/usr/lib/system/libsystem_info.dylib",
-                "/usr/lib/system/libsystem_networkextension.dylib",
-                "/usr/lib/system/libsystem_asl.dylib",
-                "/usr/lib/system/libsystem_notify.dylib",
-                "/usr/lib/system/libsystem_sandbox.dylib",
-                "/usr/lib/system/libsystem_trace.dylib",
-                "/usr/lib/system/libsystem_containermanager.dylib"
-            };
-            return sysLibs[image_index % 12];
-        }
-    }
-    return name;
-}
 
 // ============================================================================
 // MARK: - Phase 22b: Safe dlopen hook (whitelist approach)
 // Only blocks loading of KNOWN jailbreak libraries, allows everything else
 // Unlike global MSHookFunction, %hookf is Logos-managed = safe timing
 // ============================================================================
-%hookf(void*, dlopen, const char *path, int mode) {
-    if (gJailbreakHidingEnabled && path) {
-        // Only block specific JB libraries — NOT all loads
-        if (strstr(path, "MobileSubstrate") ||
-            strstr(path, "substrate") ||
-            strstr(path, "SubstrateLoader") ||
-            strstr(path, "cycript") ||
-            strstr(path, "frida") ||
-            strstr(path, "libhooker")) {
-            // Return NULL = library not found
-            return NULL;
-        }
-    }
-    return %orig(path, mode);
-}
 
 // ============================================================================
 // MARK: - Phase 22c: Safe getuid/geteuid hook
 // Jailbroken rootful devices run as uid=0 (root), non-JB = uid=501 (mobile)
 // %hookf = Logos-managed, safe timing (no early-crash like MSHookFunction)
 // ============================================================================
-%hookf(uid_t, getuid) {
-    if (gJailbreakHidingEnabled) {
-        return 501; // mobile user (non-root)
-    }
-    return %orig;
-}
 
-%hookf(uid_t, geteuid) {
-    if (gJailbreakHidingEnabled) {
-        return 501; // mobile user (non-root)
-    }
-    return %orig;
-}
-
-%end
 
 // ============================================================================
 // MARK: - Phase 23: (sandbox_check removed - not publicly linked)
