@@ -211,15 +211,6 @@ static NSString* getStableCachedValue(NSString *key, NSString *(^generator)(void
         }
 
         NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-        gDebugLoggingEnabled = [defaults boolForKey:@"UIKitInternalDebug"];
-
-        signal(SIGSEGV, CrashHandler);
-        signal(SIGBUS, CrashHandler);
-        signal(SIGABRT, CrashHandler);
-
-        [_UIDeviceConfig shared];
-        _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
-        gJailbreakHidingEnabled = [cfg isEnabled:@"jailbreak"];
         NSString *diskKey = stableCacheKeyFor(key);
         NSString *persisted = [defaults stringForKey:diskKey];
 
@@ -243,7 +234,7 @@ static NSString* getStableCachedValue(NSString *key, NSString *(^generator)(void
 
 // Generate stable UUID (cached per session, per container)
 static NSString* generateStableUUID(NSString *key) {
-    // Prefix key with container seed Ã¢â€ â€™ different UUID per container
+    // Prefix key with container seed → different UUID per container
     NSString *containerKey = key;
     @try {
 #pragma clang diagnostic push
@@ -267,13 +258,13 @@ static void initGPSBaseLocation(double lat, double lon) {
         gpsBaseLatitude = lat;
         gpsBaseLongitude = lon;
         gpsLocationInitialized = YES;
-        _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â GPS base location set: %.6f, %.6f", lat, lon);
+        _cflog(@"ðŸ“ GPS base location set: %.6f, %.6f", lat, lon);
     }
 }
 
 // Get GPS with small drift (realistic movement)
 static CLLocationCoordinate2D getGPSWithDrift(void) {
-    // Small drift: ~10-50 meters (0.0001 degree ÃƒÂ¢Ã¢â‚¬Â°Ã‹â€  11 meters)
+    // Small drift: ~10-50 meters (0.0001 degree â‰ˆ 11 meters)
     double latDrift = ((arc4random_uniform(100) - 50) / 1000000.0);
     double lonDrift = ((arc4random_uniform(100) - 50) / 1000000.0);
     return CLLocationCoordinate2DMake(gpsBaseLatitude + latDrift, gpsBaseLongitude + lonDrift);
@@ -799,32 +790,32 @@ static void _confirmFactoryReset(UIViewController *presenter) {
                           @"darwinVersion", @"wifiIP", @"bootTime", @"jailbreak", @"keychain", @"hardwareInfo"];
     
     self.settingsLabels = @{
-        @"systemVersion": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â± iOS Version",
-        @"deviceModel": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â² Device Model",
-        @"deviceName": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Âº Device Name",
-        @"identifierForVendor": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ¢â‚¬Ëœ Vendor ID (UUID)",
-        @"idfa": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Âº Advertising ID (IDFA)",
-        @"locale": @"ÃƒÂ°Ã…Â¸Ã…â€™Ã‚Â Language/Region",
-        @"timezone": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬Â¢Ã‚Â Timezone",
-        @"carrier": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â¶ Carrier Name",
-        @"mcc": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â¡ Mobile Country Code",
-        @"mnc": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â¡ Mobile Network Code",
-        @"screenWidth": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â Screen Width (px)",
-        @"screenHeight": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â Screen Height (px)",
-        @"physicalMemory": @"ÃƒÂ°Ã…Â¸Ã‚Â§Ã‚Â  RAM (bytes)",
-        @"totalDiskSpace": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã‚Â¾ Total Disk (bytes)",
-        @"freeDiskSpace": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã‚Â¾ Free Disk (bytes)",
-        @"batteryLevel": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ¢â‚¬Â¹ Battery Level (0-1)",
-        @"bundleIdentifier": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â¦ Bundle ID",
-        @"appVersion": @"ÃƒÂ°Ã…Â¸Ã‚ÂÃ‚Â·ÃƒÂ¯Ã‚Â¸Ã‚Â App Version",
-        @"bundleVersion": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â¢ Build Version",
-        @"displayName": @"ÃƒÂ¢Ã…â€œÃ‚ÂÃƒÂ¯Ã‚Â¸Ã‚Â Display Name",
-        @"darwinVersion": @"ÃƒÂ¢Ã…Â¡Ã¢â€žÂ¢ÃƒÂ¯Ã‚Â¸Ã‚Â Darwin Version",
-        @"wifiIP": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â¡ WiFi IP",
-        @"bootTime": @"ÃƒÂ¢Ã‚ÂÃ‚Â° Boot Time (Fresh)",
-        @"jailbreak": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ¢â‚¬Å“ Hide Jailbreak",
-        @"keychain": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â Block Keychain",
-        @"hardwareInfo": @"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â Deep Identity (Screen/RAM/Disk/Analytics)"
+        @"systemVersion": @"ðŸ“± iOS Version",
+        @"deviceModel": @"ðŸ“² Device Model",
+        @"deviceName": @"ðŸ“› Device Name",
+        @"identifierForVendor": @"ðŸ”‘ Vendor ID (UUID)",
+        @"idfa": @"ðŸ“º Advertising ID (IDFA)",
+        @"locale": @"ðŸŒ Language/Region",
+        @"timezone": @"ðŸ• Timezone",
+        @"carrier": @"ðŸ“¶ Carrier Name",
+        @"mcc": @"ðŸ“¡ Mobile Country Code",
+        @"mnc": @"ðŸ“¡ Mobile Network Code",
+        @"screenWidth": @"ðŸ“ Screen Width (px)",
+        @"screenHeight": @"ðŸ“ Screen Height (px)",
+        @"physicalMemory": @"ðŸ§  RAM (bytes)",
+        @"totalDiskSpace": @"ðŸ’¾ Total Disk (bytes)",
+        @"freeDiskSpace": @"ðŸ’¾ Free Disk (bytes)",
+        @"batteryLevel": @"ðŸ”‹ Battery Level (0-1)",
+        @"bundleIdentifier": @"ðŸ“¦ Bundle ID",
+        @"appVersion": @"ðŸ·ï¸ App Version",
+        @"bundleVersion": @"ðŸ”¢ Build Version",
+        @"displayName": @"âœï¸ Display Name",
+        @"darwinVersion": @"âš™ï¸ Darwin Version",
+        @"wifiIP": @"ðŸ“¡ WiFi IP",
+        @"bootTime": @"â° Boot Time (Fresh)",
+        @"jailbreak": @"ðŸ”“ Hide Jailbreak",
+        @"keychain": @"ðŸ” Block Keychain",
+        @"hardwareInfo": @"ðŸ›¡ï¸ Deep Identity (Screen/RAM/Disk/Analytics)"
     };
     
     // Title label
@@ -838,7 +829,7 @@ static void _confirmFactoryReset(UIViewController *presenter) {
     // Close button
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     closeBtn.frame = CGRectMake(self.view.bounds.size.width - 60, 50, 50, 40);
-    [closeBtn setTitle:@"ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¢" forState:UIControlStateNormal];
+    [closeBtn setTitle:@"âœ•" forState:UIControlStateNormal];
     [closeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     closeBtn.titleLabel.font = [UIFont systemFontOfSize:24];
     [closeBtn addTarget:self action:@selector(dismissConfig) forControlEvents:UIControlEventTouchUpInside];
@@ -857,7 +848,7 @@ static void _confirmFactoryReset(UIViewController *presenter) {
     saveBtn.frame = CGRectMake(20, self.view.bounds.size.height - 70, self.view.bounds.size.width - 40, 50);
     saveBtn.backgroundColor = [UIColor systemBlueColor];
     saveBtn.layer.cornerRadius = 10;
-    [saveBtn setTitle:@"ÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã‚Â¾ Save Settings" forState:UIControlStateNormal];
+    [saveBtn setTitle:@"ðŸ’¾ Save Settings" forState:UIControlStateNormal];
     [saveBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     saveBtn.titleLabel.font = [UIFont boldSystemFontOfSize:18];
     [saveBtn addTarget:self action:@selector(persistAndDismiss) forControlEvents:UIControlEventTouchUpInside];
@@ -896,7 +887,7 @@ static void _confirmFactoryReset(UIViewController *presenter) {
             UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"container"];
             NSString *cid = containers[indexPath.row];
             BOOL isActive = [cid isEqualToString:activeID];
-            cell.textLabel.text = [NSString stringWithFormat:@"%@ %@", isActive ? @"Ã¢â€”Â" : @"Ã¢â€”â€¹", cid];
+            cell.textLabel.text = [NSString stringWithFormat:@"%@ %@", isActive ? @"●" : @"○", cid];
             cell.textLabel.textColor = isActive ? [UIColor systemCyanColor] : [UIColor whiteColor];
             cell.textLabel.font = [UIFont systemFontOfSize:16 weight:isActive ? UIFontWeightBold : UIFontWeightRegular];
             cell.detailTextLabel.text = isActive ? @"Active" : @"Tap to switch";
@@ -967,7 +958,7 @@ static void _confirmFactoryReset(UIViewController *presenter) {
             NSString *cid = containers[indexPath.row];
             NSString *activeID = [[_SCContainerManager shared] activeContainerID];
             if ([cid isEqualToString:activeID]) {
-                // Long press or tap active Ã¢â€ â€™ show delete option (if not default)
+                // Long press or tap active → show delete option (if not default)
                 if (![cid isEqualToString:@"default"]) {
                     UIAlertController *alert = [UIAlertController alertControllerWithTitle:cid
                         message:@"Delete this container?" preferredStyle:UIAlertControllerStyleAlert];
@@ -1286,8 +1277,8 @@ static void _confirmFactoryReset(UIViewController *presenter) {
     // Real device names
     NSArray *deviceNames = @[
         [NSString stringWithFormat:@"%@", device[@"name"]],
-        [NSString stringWithFormat:@"%@ cÃƒÂ¡Ã‚Â»Ã‚Â§a tÃƒÆ’Ã‚Â´i", device[@"name"]],
-        @"iPhone", @"iPhone cÃƒÂ¡Ã‚Â»Ã‚Â§a tÃƒÆ’Ã‚Â´i", @"My iPhone",
+        [NSString stringWithFormat:@"%@ cá»§a tÃ´i", device[@"name"]],
+        @"iPhone", @"iPhone cá»§a tÃ´i", @"My iPhone",
         @"Phone", @"Personal", @"Main Phone", @"Work iPhone"
     ];
     NSString *deviceName = deviceNames[arc4random_uniform((uint32_t)deviceNames.count)];
@@ -1422,7 +1413,7 @@ static void _confirmFactoryReset(UIViewController *presenter) {
     settings.toggles[@"totalDiskSpace"] = @YES;
     settings.toggles[@"freeDiskSpace"] = @YES;
     
-    _cflog(@"ÃƒÂ°Ã…Â¸Ã…Â½Ã‚Â² Deep Random Applied: %@ (%@) iOS %@ | %@ | %@ | Screen: %@x%@ | RAM: %lluGB | Storage: %lluGB/%lluGB | Battery: %.0f%%", 
+    _cflog(@"ðŸŽ² Deep Random Applied: %@ (%@) iOS %@ | %@ | %@ | Screen: %@x%@ | RAM: %lluGB | Storage: %lluGB/%lluGB | Battery: %.0f%%", 
             device[@"name"], device[@"model"], device[@"ios"],
             randomLocale[@"locale"], randomLocale[@"carrier"],
             specs[@"screenWidth"], specs[@"screenHeight"],
@@ -1569,11 +1560,11 @@ void _showDiagnostics() {
 }
 
 void _showConfigUI() {
-    _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â§ _showConfigUI called");
+    _cflog(@"ðŸ”§ _showConfigUI called");
     
     // Close existing window if any
     if (settingsWindow) {
-        _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â§ Closing existing settings window");
+        _cflog(@"ðŸ”§ Closing existing settings window");
         settingsWindow.hidden = YES;
         settingsWindow = nil;
         hasShownSettings = NO;
@@ -1582,7 +1573,7 @@ void _showConfigUI() {
 
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â§ Creating new settings window...");
+            _cflog(@"ðŸ”§ Creating new settings window...");
             
             // For iOS 13+, we need to use UIWindowScene
             if (@available(iOS 13.0, *)) {
@@ -1596,18 +1587,18 @@ void _showConfigUI() {
                 
                 if (windowScene) {
                     settingsWindow = [[UIWindow alloc] initWithWindowScene:windowScene];
-                    _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â§ Created window with windowScene");
+                    _cflog(@"ðŸ”§ Created window with windowScene");
                 } else {
                     settingsWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-                    _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â§ Created window with frame (no scene found)");
+                    _cflog(@"ðŸ”§ Created window with frame (no scene found)");
                 }
             } else {
                 settingsWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-                _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â§ Created window with frame (iOS < 13)");
+                _cflog(@"ðŸ”§ Created window with frame (iOS < 13)");
             }
             
             if (!settingsWindow) {
-                _cflog(@"ÃƒÂ¢Ã‚ÂÃ…â€™ Failed to create settings window!");
+                _cflog(@"âŒ Failed to create settings window!");
                 return;
             }
             
@@ -1617,7 +1608,7 @@ void _showConfigUI() {
             
             _UISystemConfigController *settingsVC = [[_UISystemConfigController alloc] init];
             if (!settingsVC) {
-                _cflog(@"ÃƒÂ¢Ã‚ÂÃ…â€™ Failed to create _UISystemConfigController!");
+                _cflog(@"âŒ Failed to create _UISystemConfigController!");
                 return;
             }
             
@@ -1626,9 +1617,9 @@ void _showConfigUI() {
             [settingsWindow makeKeyAndVisible];
             hasShownSettings = YES;
             
-            _cflog(@"ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Settings UI presented successfully! Frame: %@", NSStringFromCGRect(settingsWindow.frame));
+            _cflog(@"âœ… Settings UI presented successfully! Frame: %@", NSStringFromCGRect(settingsWindow.frame));
         } @catch (NSException *e) {
-            _cflog(@"ÃƒÂ¢Ã‚ÂÃ…â€™ Exception in _showConfigUI: %@", e.reason);
+            _cflog(@"âŒ Exception in _showConfigUI: %@", e.reason);
         }
     });
 }
@@ -1752,7 +1743,7 @@ int _sys_ctl_handler(const char *name, void *oldp, size_t *oldlenp, void *newp, 
     return -1;
 }
 
-// statfs hook ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â disk space must match NSFileManager fake values
+// statfs hook â€” disk space must match NSFileManager fake values
 int _statfs_handler(const char *path, struct statfs *buf) {
     int ret = orig_statfs_ptr ? orig_statfs_ptr(path, buf) : -1;
     if (ret != 0) return ret;
@@ -1775,13 +1766,13 @@ int _statfs_handler(const char *path, struct statfs *buf) {
     return ret;
 }
 
-// sysctl by OID number ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â apps bypass sysctlbyname by using raw OID
+// sysctl by OID number â€” apps bypass sysctlbyname by using raw OID
 int _sys_ctl_oid_handler(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
     @try {
         if (namelen >= 2 && name[0] == CTL_HW) {
             _UIDeviceConfig *settings = [_UIDeviceConfig shared];
             
-            // HW_MEMSIZE (RAM) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â must match NSProcessInfo.physicalMemory
+            // HW_MEMSIZE (RAM) â€” must match NSProcessInfo.physicalMemory
             if (name[1] == HW_MEMSIZE && [settings isEnabled:@"hardwareInfo"]) {
                 NSNumber *ram = [settings valueForKey:@"physicalMemory"];
                 if (ram && oldp && oldlenp) {
@@ -1863,7 +1854,7 @@ int _net_if_handler(struct ifaddrs **ifap) {
                         const char* fakeIP = [[settings valueForKey:@"wifiIP"] UTF8String];
                         inet_pton(AF_INET, fakeIP, &(addr->sin_addr));
                     }
-                    // Fake MAC address (AF_LINK) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â critical for device tracking
+                    // Fake MAC address (AF_LINK) â€” critical for device tracking
                     if (ifa->ifa_addr->sa_family == AF_LINK) {
                         struct sockaddr_dl *sdl = (struct sockaddr_dl *)ifa->ifa_addr;
                         if (sdl->sdl_alen == 6) {
@@ -2011,7 +2002,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
             }
             // Generate stable UUID for this session
             NSString *stableUUID = generateStableUUID(@"identifierForVendor");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â Using stable IDFV: %@", stableUUID);
+            _cflog(@"ðŸ” Using stable IDFV: %@", stableUUID);
             return [[NSUUID alloc] initWithUUIDString:stableUUID];
         }
     } @catch(NSException *e) { _cflog(@"[CRASH] UIDevice.identifierForVendor: %@", e.reason); }
@@ -2026,7 +2017,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
             NSString *levelStr = [settings valueForKey:@"batteryLevel"];
             if (levelStr && ![levelStr isEqualToString:@"N/A"]) {
                 float level = [levelStr floatValue];
-                _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ¢â‚¬Â¹ Faking battery level: %.2f", level);
+                _cflog(@"ðŸ”‹ Faking battery level: %.2f", level);
                 return level;
             }
         }
@@ -2096,7 +2087,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
         if ([settings isEnabled:@"jailbreak"]) {
             // Hide sideload/jailbreak indicators
             if ([key isEqualToString:@"SignerIdentity"]) {
-                _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â objectForInfoDictionaryKey hidden: %@", key);
+                _cflog(@"ðŸ›¡ï¸ objectForInfoDictionaryKey hidden: %@", key);
                 return nil;
             }
         }
@@ -2128,7 +2119,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
         if ([settings isEnabled:@"jailbreak"] && path && jailbreakFilePaths) {
             for (NSString *jbPath in jailbreakFilePaths) {
                 if ([path hasPrefix:jbPath] || [path isEqualToString:jbPath]) {
-                    _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â fileExistsAtPath hidden: %@", path);
+                    _cflog(@"ðŸ›¡ï¸ fileExistsAtPath hidden: %@", path);
                     return NO;
                 }
             }
@@ -2143,7 +2134,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
         if ([settings isEnabled:@"jailbreak"] && path && jailbreakFilePaths) {
             for (NSString *jbPath in jailbreakFilePaths) {
                 if ([path hasPrefix:jbPath] || [path isEqualToString:jbPath]) {
-                    _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â fileExistsAtPath:isDirectory hidden: %@", path);
+                    _cflog(@"ðŸ›¡ï¸ fileExistsAtPath:isDirectory hidden: %@", path);
                     if (isDirectory) *isDirectory = NO;
                     return NO;
                 }
@@ -2166,7 +2157,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
                         [filtered addObject:item];
                     }
                 }
-                _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â Filtered /Applications directory");
+                _cflog(@"ðŸ›¡ï¸ Filtered /Applications directory");
                 return filtered;
             }
         }
@@ -2190,13 +2181,13 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
             if (fakeIDFA && fakeIDFA.length > 0 && ![fakeIDFA isEqualToString:@"N/A"]) {
                 NSUUID *uuid = [[NSUUID alloc] initWithUUIDString:fakeIDFA];
                 if (uuid) {
-                    _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Âº Faking IDFA (stored): %@", fakeIDFA);
+                    _cflog(@"ðŸ“º Faking IDFA (stored): %@", fakeIDFA);
                     return uuid;
                 }
             }
             // Generate stable IDFA for this session (cached)
             NSString *stableIDFA = generateStableUUID(@"idfa_session");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Âº Using stable session IDFA: %@", stableIDFA);
+            _cflog(@"ðŸ“º Using stable session IDFA: %@", stableIDFA);
             return [[NSUUID alloc] initWithUUIDString:stableIDFA];
         }
     } @catch(NSException *e) { _cflog(@"[CRASH] ASIdentifierManager.advertisingIdentifier: %@", e.reason); }
@@ -2207,7 +2198,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"idfa"]) {
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Âº Faking ad tracking: disabled");
+            _cflog(@"ðŸ“º Faking ad tracking: disabled");
             return NO; // Simulate user disabled ad tracking
         }
     } @catch(NSException *e) { _cflog(@"[CRASH] ASIdentifierManager.isAdvertisingTrackingEnabled: %@", e.reason); }
@@ -2223,7 +2214,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
         if ([settings isEnabled:@"locale"]) {
             NSString *fakeLocale = [settings valueForKey:@"locale"];
             if (fakeLocale && fakeLocale.length > 0) {
-                _cflog(@"ÃƒÂ°Ã…Â¸Ã…â€™Ã‚Â Faking locale: %@", fakeLocale);
+                _cflog(@"ðŸŒ Faking locale: %@", fakeLocale);
                 return [[NSLocale alloc] initWithLocaleIdentifier:fakeLocale];
             }
         }
@@ -2270,7 +2261,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
             if (fakeTZ && fakeTZ.length > 0) {
                 NSTimeZone *tz = [NSTimeZone timeZoneWithName:fakeTZ];
                 if (tz) {
-                    _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Â¢Ã‚Â Faking timezone: %@", fakeTZ);
+                    _cflog(@"ðŸ• Faking timezone: %@", fakeTZ);
                     return tz;
                 }
             }
@@ -2316,7 +2307,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
         if ([settings isEnabled:@"carrier"]) {
             NSString *fakeCarrier = [settings valueForKey:@"carrier"];
             if (fakeCarrier && fakeCarrier.length > 0) {
-                _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â¶ Faking carrier: %@", fakeCarrier);
+                _cflog(@"ðŸ“¶ Faking carrier: %@", fakeCarrier);
                 return fakeCarrier;
             }
         }
@@ -2348,7 +2339,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
         if ([settings isEnabled:@"carrier"]) {
             NSString *fakeMCC = [settings valueForKey:@"mcc"];
             if (fakeMCC && fakeMCC.length > 0) {
-                _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â¶ Faking MCC: %@", fakeMCC);
+                _cflog(@"ðŸ“¶ Faking MCC: %@", fakeMCC);
                 return fakeMCC;
             }
         }
@@ -2362,7 +2353,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
         if ([settings isEnabled:@"carrier"]) {
             NSString *fakeMNC = [settings valueForKey:@"mnc"];
             if (fakeMNC && fakeMNC.length > 0) {
-                _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â¶ Faking MNC: %@", fakeMNC);
+                _cflog(@"ðŸ“¶ Faking MNC: %@", fakeMNC);
                 return fakeMNC;
             }
         }
@@ -2427,7 +2418,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
                 CGFloat scale = [scaleStr floatValue];
                 CGFloat width = [widthStr floatValue] / scale;
                 CGFloat height = [heightStr floatValue] / scale;
-                _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â± Faking screen bounds: %.0fx%.0f", width, height);
+                _cflog(@"ðŸ“± Faking screen bounds: %.0fx%.0f", width, height);
                 return CGRectMake(0, 0, width, height);
             }
         }
@@ -2444,7 +2435,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
             if (widthStr && heightStr) {
                 CGFloat width = [widthStr floatValue];
                 CGFloat height = [heightStr floatValue];
-                _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â± Faking native bounds: %.0fx%.0f", width, height);
+                _cflog(@"ðŸ“± Faking native bounds: %.0fx%.0f", width, height);
                 return CGRectMake(0, 0, width, height);
             }
         }
@@ -2488,7 +2479,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
             NSString *ramStr = [settings valueForKey:@"physicalMemory"];
             if (ramStr) {
                 unsigned long long ram = strtoull([ramStr UTF8String], NULL, 10);
-                _cflog(@"ÃƒÂ°Ã…Â¸Ã‚Â§Ã‚Â  Faking RAM: %llu bytes (%.1f GB)", ram, ram / 1073741824.0);
+                _cflog(@"ðŸ§  Faking RAM: %llu bytes (%.1f GB)", ram, ram / 1073741824.0);
                 return ram;
             }
         }
@@ -2538,7 +2529,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
                 unsigned long long free = strtoull([freeStr UTF8String], NULL, 10);
                 fakeDict[NSFileSystemSize] = @(total);
                 fakeDict[NSFileSystemFreeSize] = @(free);
-                _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã‚Â¾ Faking disk: %.1fGB free / %.1fGB total", free / 1073741824.0, total / 1073741824.0);
+                _cflog(@"ðŸ’¾ Faking disk: %.1fGB free / %.1fGB total", free / 1073741824.0, total / 1073741824.0);
                 return fakeDict;
             }
         }
@@ -2557,7 +2548,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¹ UIPasteboard.items blocked - returning empty");
+            _cflog(@"ðŸ“‹ UIPasteboard.items blocked - returning empty");
             return @[];
         }
     } @catch(NSException *e) { _cflog(@"[CRASH] UIPasteboard.items: %@", e.reason); }
@@ -2665,7 +2656,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
                 NSDate *fakeDate = cachedInstallDate;
                 fakeDict[NSFileCreationDate] = fakeDate;
                 fakeDict[NSFileModificationDate] = fakeDate;
-                _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¦ Faking app install date: %@", fakeDate);
+                _cflog(@"ðŸ“… Faking app install date: %@", fakeDate);
                 return fakeDict;
             }
         }
@@ -2683,11 +2674,11 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (BOOL)isSupported {
-    return YES; // Always claim supported ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â returning NO is suspicious
+    return YES; // Always claim supported â€” returning NO is suspicious
 }
 
 - (void)generateTokenWithCompletionHandler:(void (^)(NSData *token, NSError *error))completion {
-    // CRITICAL: Let Apple generate REAL token Ã¢â‚¬â€ fake tokens get rejected server-side
+    // CRITICAL: Let Apple generate REAL token — fake tokens get rejected server-side
     // causing error callbacks that crash apps expecting valid tokens
     %orig;
 }
@@ -2700,7 +2691,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (BOOL)isSupported {
-    return YES; // Always claim supported ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â returning NO is detectable
+    return YES; // Always claim supported â€” returning NO is detectable
 }
 
 - (void)attestKey:(NSString *)keyId clientDataHash:(NSData *)hash completionHandler:(void (^)(NSData *, NSError *))completion {
@@ -2747,7 +2738,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
         if ([settings isEnabled:@"hardwareInfo"]) {
             // Use stable cached UUID for this session
             NSString *fakeUID = generateStableUUID(@"appsflyer_uid");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…Â  AppsFlyer UID faked (stable): %@", fakeUID);
+            _cflog(@"ðŸ“Š AppsFlyer UID faked (stable): %@", fakeUID);
             return fakeUID;
         }
     } @catch(NSException *e) { _cflog(@"[CRASH] AppsFlyerLib.getAppsFlyerUID: %@", e.reason); }
@@ -2759,7 +2750,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (void)start {
-    // CRITICAL: Let SDK init normally Ã¢â‚¬â€ blocking causes crash on subsequent calls
+    // CRITICAL: Let SDK init normally — blocking causes crash on subsequent calls
     // Device IDs are already faked via getAppsFlyerUID hook
     %orig;
 }
@@ -2776,7 +2767,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // MARK: - Block Adjust SDK
 %hook Adjust
 + (void)appDidLaunch:(id)config {
-    // CRITICAL: Let SDK init normally Ã¢â‚¬â€ blocking causes crash on subsequent calls
+    // CRITICAL: Let SDK init normally — blocking causes crash on subsequent calls
     // Device IDs are already faked via adid hook
     %orig;
 }
@@ -2883,7 +2874,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"mixpanel_distinct_id");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…Â  Mixpanel distinctId faked (stable): %@", fakeID);
+            _cflog(@"ðŸ“Š Mixpanel distinctId faked (stable): %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) { _cflog(@"[CRASH] Mixpanel.distinctId: %@", e.reason); }
@@ -2898,7 +2889,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"amplitude_device_id");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…Â  Amplitude deviceId faked (stable): %@", fakeID);
+            _cflog(@"ðŸ“Š Amplitude deviceId faked (stable): %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) { _cflog(@"[CRASH] Amplitude.getDeviceId: %@", e.reason); }
@@ -2985,7 +2976,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
                                                            horizontalAccuracy:cachedHAccuracy
                                                              verticalAccuracy:cachedVAccuracy
                                                                     timestamp:[NSDate date]];
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â Location faked (stable with drift): %.6f, %.6f", fakeCoord.latitude, fakeCoord.longitude);
+            _cflog(@"ðŸ“ Location faked (stable with drift): %.6f, %.6f", fakeCoord.latitude, fakeCoord.longitude);
             return fakeLocation;
         }
     } @catch(NSException *e) { _cflog(@"[CRASH] CLLocationManager.location: %@", e.reason); }
@@ -2996,7 +2987,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â startUpdatingLocation - will return fake location");
+            _cflog(@"ðŸ“ startUpdatingLocation - will return fake location");
         }
     } @catch(NSException *e) { _cflog(@"[CRASH] startUpdatingLocation: %@", e.reason); }
     %orig;
@@ -3006,7 +2997,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â requestWhenInUseAuthorization intercepted");
+            _cflog(@"ðŸ“ requestWhenInUseAuthorization intercepted");
         }
     } @catch(NSException *e) {}
     %orig;
@@ -3221,7 +3212,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
         if ([settings isEnabled:@"jailbreak"] && url) {
             NSString *scheme = url.scheme.lowercaseString;
             if ([jailbreakURLSchemes containsObject:scheme]) {
-                _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â canOpenURL blocked for jailbreak scheme: %@", scheme);
+                _cflog(@"ðŸ›¡ï¸ canOpenURL blocked for jailbreak scheme: %@", scheme);
                 return NO;
             }
         }
@@ -3249,7 +3240,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
                 [env removeObjectForKey:key];
             }
 
-            _cflog(@"Ã°Å¸â€ºÂ¡Ã¯Â¸Â  Cleaned environment variables");
+            _cflog(@"🛡️  Cleaned environment variables");
             return env;
         }
     } @catch(NSException *e) {}
@@ -3258,9 +3249,9 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %end
 
 // MARK: - Keychain Configuration (SMART: only block device fingerprint items)
-// CRITICAL FIX: Previous version blocked ALL keychain Ã¢â€ â€™ app crash after registration
+// CRITICAL FIX: Previous version blocked ALL keychain → app crash after registration
 // New version: only block items containing device fingerprint keys
-// Uses C-safe strcasestr Ã¢â‚¬â€ ZERO allocations, no performance hit
+// Uses C-safe strcasestr — ZERO allocations, no performance hit
 
 // C-safe fingerprint check (no ObjC allocations)
 static const char *_fingerprintKeywords[] = {
@@ -3310,11 +3301,11 @@ OSStatus _sec_query_handler(CFDictionaryRef query, CFTypeRef *result) {
         if ([settings isEnabled:@"keychain"]) {
             // SMART: Only block device fingerprint items
             if (_isDeviceFingerprintKeychainItem(query)) {
-                _cflog(@"Ã°Å¸â€â€˜ SecItemCopyMatching BLOCKED (fingerprint item detected)");
+                _cflog(@"🔑 SecItemCopyMatching BLOCKED (fingerprint item detected)");
                 if (result) *result = NULL;
                 return errSecItemNotFound;
             }
-            // Normal app items (auth tokens, passwords) Ã¢â€ â€™ pass through
+            // Normal app items (auth tokens, passwords) → pass through
         }
     } @catch(NSException *e) { _cflog(@"[CRASH] SecItemCopyMatching: %@", e.reason); }
     
@@ -3330,11 +3321,11 @@ OSStatus _sec_add_handler(CFDictionaryRef attributes, CFTypeRef *result) {
         if ([settings isEnabled:@"keychain"]) {
             // SMART: Only intercept device fingerprint items
             if (_isDeviceFingerprintKeychainItem(attributes)) {
-                _cflog(@"Ã°Å¸â€â€˜ SecItemAdd BLOCKED (fingerprint item) - faking success");
+                _cflog(@"🔑 SecItemAdd BLOCKED (fingerprint item) - faking success");
                 if (result) *result = NULL;
                 return errSecSuccess; // Fake success, don't store
             }
-            // Normal app items Ã¢â€ â€™ store normally
+            // Normal app items → store normally
         }
     } @catch(NSException *e) { _cflog(@"[CRASH] SecItemAdd: %@", e.reason); }
     
@@ -3349,7 +3340,7 @@ OSStatus _sec_del_handler(CFDictionaryRef query) {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"keychain"]) {
             if (_isDeviceFingerprintKeychainItem(query)) {
-                _cflog(@"Ã°Å¸â€â€˜ SecItemDelete BLOCKED (fingerprint item)");
+                _cflog(@"🔑 SecItemDelete BLOCKED (fingerprint item)");
                 return errSecSuccess;
             }
         }
@@ -3373,7 +3364,7 @@ OSStatus _sec_del_handler(CFDictionaryRef query) {
         // Debounce: only trigger once every 2 seconds
         if (currentTime - lastShakeTime > 2.0) {
             lastShakeTime = currentTime;
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â³ Shake detected! Opening Settings UI...");
+            _cflog(@"ðŸ“³ Shake detected! Opening Settings UI...");
             
             dispatch_async(dispatch_get_main_queue(), ^{
                 _showConfigUI();
@@ -3462,7 +3453,25 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
             } else {
                 [redirected addObject:path];
             }
-         NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        }
+        return redirected;
+    } @catch(NSException *e) { return origPaths; }
+}
+
+// MARK: - Tweak Initialization (MERGED - single %ctor)
+%ctor {
+    @autoreleasepool {
+        %init; // Init default group (ObjC hooks only, TrollStore safe)
+        // NOTE: %group CFunctionHooks is NOT initialized = no MSHookFunction crash
+        NSString *bundleId = getRealBundleIdentifier();
+        if ([bundleId hasPrefix:@"com.apple."]) {
+            return;
+        }
+
+        // Init jailbreak paths (moved from __attribute__((constructor)))
+        initJailbreakPaths();
+
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
         gDebugLoggingEnabled = [defaults boolForKey:@"UIKitInternalDebug"];
 
         signal(SIGSEGV, CrashHandler);
@@ -3476,17 +3485,13 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
         gJailbreakHidingEnabled = [cfg isEnabled:@"jailbreak"];
 
         // ================================================================
-        // MSHookFunction calls DISABLED for TrollStore compatibility
-        // ================================================================
-        // On non-jailbroken devices (TrollStore), MSHookFunction crashes
-        // with KERN_PROTECTION_FAILURE because CydiaSubstrate cannot modify
-        // memory protections on shared cache system libraries.
-        // Only ObjC %hook (method swizzling) works safely on TrollStore.
+        // ALL MSHookFunction calls DISABLED for TrollStore compatibility
+        // MSHookFunction crashes with KERN_PROTECTION_FAILURE on iOS 17+
+        // because CydiaSubstrate cannot modify shared cache memory pages.
+        // Only ObjC %hook (method swizzling) is safe on TrollStore.
         // ================================================================
 
-        _cflog(@"Hooks installed (ObjC swizzling only - TrollStore safe)");
-        
-        // Phase 31: ObjC class list hiding DISABLED (MSHookFunction crashes on TrollStore)
+        _cflog(@"ObjC hooks initialized (TrollStore safe mode)");
 
         // Container path hooks DISABLED - causes crash during app init
         // TODO: implement safer lazy path redirection
@@ -3524,7 +3529,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"incognia_device_id");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â Incognia deviceId blocked: %@", fakeID);
+            _cflog(@"ðŸ›¡ï¸ Incognia deviceId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -3536,7 +3541,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"incognia_install_id");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â Incognia installationId blocked: %@", fakeID);
+            _cflog(@"ðŸ›¡ï¸ Incognia installationId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -3551,7 +3556,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"shield_device_id");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â SHIELD deviceId blocked: %@", fakeID);
+            _cflog(@"ðŸ›¡ï¸ SHIELD deviceId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -3563,7 +3568,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"shield_session_id");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â SHIELD sessionId blocked: %@", fakeID);
+            _cflog(@"ðŸ›¡ï¸ SHIELD sessionId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -3578,7 +3583,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"truevision_device_id");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â TransUnion deviceId blocked: %@", fakeID);
+            _cflog(@"ðŸ›¡ï¸ TransUnion deviceId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -3592,7 +3597,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"truevision_fingerprint");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â TransUnion fingerprint blocked: %@", fakeID);
+            _cflog(@"ðŸ›¡ï¸ TransUnion fingerprint blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -3607,7 +3612,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"sift_device_id");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â Sift deviceId blocked: %@", fakeID);
+            _cflog(@"ðŸ›¡ï¸ Sift deviceId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -3633,7 +3638,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"perimeterx_vid");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â PerimeterX VID blocked: %@", fakeID);
+            _cflog(@"ðŸ›¡ï¸ PerimeterX VID blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -3659,7 +3664,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"fingerprintjs_visitor_id");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â FingerprintJS visitorId blocked: %@", fakeID);
+            _cflog(@"ðŸ›¡ï¸ FingerprintJS visitorId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -3674,7 +3679,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"forter_device_id");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â Forter deviceId blocked: %@", fakeID);
+            _cflog(@"ðŸ›¡ï¸ Forter deviceId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -3689,7 +3694,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
             NSString *fakeID = generateStableUUID(@"riskified_session_id");
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â Riskified sessionId blocked: %@", fakeID);
+            _cflog(@"ðŸ›¡ï¸ Riskified sessionId blocked: %@", fakeID);
             return fakeID;
         }
     } @catch(NSException *e) {}
@@ -3813,7 +3818,7 @@ int _dbg_trace_handler(int request, pid_t pid, caddr_t addr, int data) {
     if ([settings isEnabled:@"jailbreak"]) {
         // PT_DENY_ATTACH = 31
         if (request == 31) {
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â ptrace PT_DENY_ATTACH blocked");
+            _cflog(@"ðŸ›¡ï¸ ptrace PT_DENY_ATTACH blocked");
             return 0;
         }
     }
@@ -3824,7 +3829,7 @@ int _dbg_trace_handler(int request, pid_t pid, caddr_t addr, int data) {
 pid_t _proc_fork_handler(void) {
     _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"]) {
-        _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â fork() blocked");
+        _cflog(@"ðŸ›¡ï¸ fork() blocked");
         return -1; // Return error (non-jailbroken devices should not allow fork)
     }
     return orig_fork ? orig_fork() : -1;
@@ -3839,7 +3844,7 @@ char* _env_get_handler(const char *name) {
             strstr(name, "MobileSubstrate") ||
             strstr(name, "Substrate") ||
             strstr(name, "SIMULATOR")) {
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â getenv blocked: %s", name);
+            _cflog(@"ðŸ›¡ï¸ getenv blocked: %s", name);
             return NULL;
         }
     }
@@ -3854,7 +3859,7 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
             strstr(path, "substrate") || strstr(path, "MobileSubstrate") ||
             strstr(path, "Library/MobileSubstrate") || strstr(path, "sileo") ||
             strstr(path, "zebra") || strstr(path, "filza") || strstr(path, "ssh")) {
-            _cflog(@"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â¡ÃƒÂ¯Ã‚Â¸Ã‚Â lstat blocked: %s", path);
+            _cflog(@"ðŸ›¡ï¸ lstat blocked: %s", path);
             errno = ENOENT;
             return -1;
         }
@@ -3866,10 +3871,12 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
 // MARK: - Phase 22: dyld Image Detection Bypass
 // ============================================================================
 
-// _dyld_image_count ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â subtract a fixed number of JB images
+// _dyld_image_count â€” subtract a fixed number of JB images
 // NOTE: Cannot call _dyld_get_image_name here (it's hooked = circular crash)
 // Instead, subtract a safe fixed count based on typical JB injection
 %group CFunctionHooks
+// WARNING: This group is NOT %init'd - MSHookFunction crashes on TrollStore
+
 %hookf(uint32_t, _dyld_image_count) {
     uint32_t count = %orig;
     if (gJailbreakHidingEnabled && count > 3) {
@@ -3922,7 +3929,7 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
 // ============================================================================
 %hookf(void*, dlopen, const char *path, int mode) {
     if (gJailbreakHidingEnabled && path) {
-        // Only block specific JB libraries Ã¢â‚¬â€ NOT all loads
+        // Only block specific JB libraries — NOT all loads
         if (strstr(path, "MobileSubstrate") ||
             strstr(path, "substrate") ||
             strstr(path, "SubstrateLoader") ||
