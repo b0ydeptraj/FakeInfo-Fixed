@@ -3461,7 +3461,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 // MARK: - Tweak Initialization (MERGED - single %ctor)
 %ctor {
     @autoreleasepool {
-        %init; // Init default group (ObjC hooks only, TrollStore safe)
+        %init // Init default group (ObjC hooks only, TrollStore safe)
         // NOTE: %group CFunctionHooks is NOT initialized = no MSHookFunction crash
         NSString *bundleId = getRealBundleIdentifier();
         if ([bundleId hasPrefix:@"com.apple."]) {
