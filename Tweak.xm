@@ -3962,6 +3962,8 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
     return %orig;
 }
 
+%end // end CFunctionHooks group
+
 // ============================================================================
 // MARK: - Phase 23: (sandbox_check removed - not publicly linked)
 // ============================================================================
@@ -4069,7 +4071,7 @@ static BOOL _isBlockedAnalyticsHost(NSString *host) {
     } @catch(NSException *e) {}
     return %orig;
 }
-%end // CFunctionHooks
+%end
 
 // ============================================================================
 // MARK: - Phase 26 REWRITE: Push token swizzle via runtime (SAFE)
