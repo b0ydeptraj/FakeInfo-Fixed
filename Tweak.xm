@@ -3869,90 +3869,91 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
 // _dyld_image_count ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â subtract a fixed number of JB images
 // NOTE: Cannot call _dyld_get_image_name here (it's hooked = circular crash)
 // Instead, subtract a safe fixed count based on typical JB injection
-// DISABLED_TROLLSTORE: %hookf(uint32_t, _dyld_image_count) {
-// DISABLED_TROLLSTORE:     uint32_t count = %orig;
-// DISABLED_TROLLSTORE:     if (gJailbreakHidingEnabled && count > 3) {
-// DISABLED_TROLLSTORE:         return count - 3; // Typical: substrate + tweakloader + this dylib
-// DISABLED_TROLLSTORE:     }
-// DISABLED_TROLLSTORE:     return count;
-// DISABLED_TROLLSTORE: }
+%group CFunctionHooks
+%hookf(uint32_t, _dyld_image_count) {
+    uint32_t count = %orig;
+    if (gJailbreakHidingEnabled && count > 3) {
+        return count - 3; // Typical: substrate + tweakloader + this dylib
+    }
+    return count;
+}
 
 
 // _dyld_get_image_name hook - hide MobileSubstrate dylibs
 // SAFE: uses C static flag set in %ctor, NOT ObjC call (dyld runs before ObjC ready)
-// DISABLED_TROLLSTORE: %hookf(const char*, _dyld_get_image_name, uint32_t image_index) {
-// DISABLED_TROLLSTORE:     const char *name = %orig(image_index);
-// DISABLED_TROLLSTORE:     if (gJailbreakHidingEnabled && name) {
-// DISABLED_TROLLSTORE:         // Hide jailbreak-related dylib names
-// DISABLED_TROLLSTORE:         if (strstr(name, "MobileSubstrate") ||
-// DISABLED_TROLLSTORE:             strstr(name, "substrate") ||
-// DISABLED_TROLLSTORE:             strstr(name, "SubstrateLoader") ||
-// DISABLED_TROLLSTORE:             strstr(name, "TweakInject") ||
-// DISABLED_TROLLSTORE:             strstr(name, "Inject") ||
-// DISABLED_TROLLSTORE:             strstr(name, "Cycript") ||
-// DISABLED_TROLLSTORE:             strstr(name, "libhooker") ||
-// DISABLED_TROLLSTORE:             strstr(name, "substitute")) {
-// DISABLED_TROLLSTORE:             // Name hidden (no log - ObjC unsafe in dyld context)
-// DISABLED_TROLLSTORE:             // Return unique system lib path per index to avoid duplicate collision
-// DISABLED_TROLLSTORE:             static const char *sysLibs[] = {
-// DISABLED_TROLLSTORE:                 "/usr/lib/system/libsystem_c.dylib",
-// DISABLED_TROLLSTORE:                 "/usr/lib/system/libsystem_kernel.dylib",
-// DISABLED_TROLLSTORE:                 "/usr/lib/system/libsystem_platform.dylib",
-// DISABLED_TROLLSTORE:                 "/usr/lib/system/libsystem_pthread.dylib",
-// DISABLED_TROLLSTORE:                 "/usr/lib/system/libsystem_malloc.dylib",
-// DISABLED_TROLLSTORE:                 "/usr/lib/system/libsystem_info.dylib",
-// DISABLED_TROLLSTORE:                 "/usr/lib/system/libsystem_networkextension.dylib",
-// DISABLED_TROLLSTORE:                 "/usr/lib/system/libsystem_asl.dylib",
-// DISABLED_TROLLSTORE:                 "/usr/lib/system/libsystem_notify.dylib",
-// DISABLED_TROLLSTORE:                 "/usr/lib/system/libsystem_sandbox.dylib",
-// DISABLED_TROLLSTORE:                 "/usr/lib/system/libsystem_trace.dylib",
-// DISABLED_TROLLSTORE:                 "/usr/lib/system/libsystem_containermanager.dylib"
-// DISABLED_TROLLSTORE:             };
-// DISABLED_TROLLSTORE:             return sysLibs[image_index % 12];
-// DISABLED_TROLLSTORE:         }
-// DISABLED_TROLLSTORE:     }
-// DISABLED_TROLLSTORE:     return name;
-// DISABLED_TROLLSTORE: }
+%hookf(const char*, _dyld_get_image_name, uint32_t image_index) {
+    const char *name = %orig(image_index);
+    if (gJailbreakHidingEnabled && name) {
+        // Hide jailbreak-related dylib names
+        if (strstr(name, "MobileSubstrate") ||
+            strstr(name, "substrate") ||
+            strstr(name, "SubstrateLoader") ||
+            strstr(name, "TweakInject") ||
+            strstr(name, "Inject") ||
+            strstr(name, "Cycript") ||
+            strstr(name, "libhooker") ||
+            strstr(name, "substitute")) {
+            // Name hidden (no log - ObjC unsafe in dyld context)
+            // Return unique system lib path per index to avoid duplicate collision
+            static const char *sysLibs[] = {
+                "/usr/lib/system/libsystem_c.dylib",
+                "/usr/lib/system/libsystem_kernel.dylib",
+                "/usr/lib/system/libsystem_platform.dylib",
+                "/usr/lib/system/libsystem_pthread.dylib",
+                "/usr/lib/system/libsystem_malloc.dylib",
+                "/usr/lib/system/libsystem_info.dylib",
+                "/usr/lib/system/libsystem_networkextension.dylib",
+                "/usr/lib/system/libsystem_asl.dylib",
+                "/usr/lib/system/libsystem_notify.dylib",
+                "/usr/lib/system/libsystem_sandbox.dylib",
+                "/usr/lib/system/libsystem_trace.dylib",
+                "/usr/lib/system/libsystem_containermanager.dylib"
+            };
+            return sysLibs[image_index % 12];
+        }
+    }
+    return name;
+}
 
 // ============================================================================
 // MARK: - Phase 22b: Safe dlopen hook (whitelist approach)
 // Only blocks loading of KNOWN jailbreak libraries, allows everything else
 // Unlike global MSHookFunction, %hookf is Logos-managed = safe timing
 // ============================================================================
-// DISABLED_TROLLSTORE: %hookf(void*, dlopen, const char *path, int mode) {
-// DISABLED_TROLLSTORE:     if (gJailbreakHidingEnabled && path) {
-// DISABLED_TROLLSTORE:         // Only block specific JB libraries Ã¢â‚¬â€ NOT all loads
-// DISABLED_TROLLSTORE:         if (strstr(path, "MobileSubstrate") ||
-// DISABLED_TROLLSTORE:             strstr(path, "substrate") ||
-// DISABLED_TROLLSTORE:             strstr(path, "SubstrateLoader") ||
-// DISABLED_TROLLSTORE:             strstr(path, "cycript") ||
-// DISABLED_TROLLSTORE:             strstr(path, "frida") ||
-// DISABLED_TROLLSTORE:             strstr(path, "libhooker")) {
-// DISABLED_TROLLSTORE:             // Return NULL = library not found
-// DISABLED_TROLLSTORE:             return NULL;
-// DISABLED_TROLLSTORE:         }
-// DISABLED_TROLLSTORE:     }
-// DISABLED_TROLLSTORE:     return %orig(path, mode);
-// DISABLED_TROLLSTORE: }
+%hookf(void*, dlopen, const char *path, int mode) {
+    if (gJailbreakHidingEnabled && path) {
+        // Only block specific JB libraries Ã¢â‚¬â€ NOT all loads
+        if (strstr(path, "MobileSubstrate") ||
+            strstr(path, "substrate") ||
+            strstr(path, "SubstrateLoader") ||
+            strstr(path, "cycript") ||
+            strstr(path, "frida") ||
+            strstr(path, "libhooker")) {
+            // Return NULL = library not found
+            return NULL;
+        }
+    }
+    return %orig(path, mode);
+}
 
 // ============================================================================
 // MARK: - Phase 22c: Safe getuid/geteuid hook
 // Jailbroken rootful devices run as uid=0 (root), non-JB = uid=501 (mobile)
 // %hookf = Logos-managed, safe timing (no early-crash like MSHookFunction)
 // ============================================================================
-// DISABLED_TROLLSTORE: %hookf(uid_t, getuid) {
-// DISABLED_TROLLSTORE:     if (gJailbreakHidingEnabled) {
-// DISABLED_TROLLSTORE:         return 501; // mobile user (non-root)
-// DISABLED_TROLLSTORE:     }
-// DISABLED_TROLLSTORE:     return %orig;
-// DISABLED_TROLLSTORE: }
+%hookf(uid_t, getuid) {
+    if (gJailbreakHidingEnabled) {
+        return 501; // mobile user (non-root)
+    }
+    return %orig;
+}
 
-// DISABLED_TROLLSTORE: %hookf(uid_t, geteuid) {
-// DISABLED_TROLLSTORE:     if (gJailbreakHidingEnabled) {
-// DISABLED_TROLLSTORE:         return 501; // mobile user (non-root)
-// DISABLED_TROLLSTORE:     }
-// DISABLED_TROLLSTORE:     return %orig;
-// DISABLED_TROLLSTORE: }
+%hookf(uid_t, geteuid) {
+    if (gJailbreakHidingEnabled) {
+        return 501; // mobile user (non-root)
+    }
+    return %orig;
+}
 
 // ============================================================================
 // MARK: - Phase 23: (sandbox_check removed - not publicly linked)
@@ -4061,7 +4062,7 @@ static BOOL _isBlockedAnalyticsHost(NSString *host) {
     } @catch(NSException *e) {}
     return %orig;
 }
-%end
+%end // CFunctionHooks
 
 // ============================================================================
 // MARK: - Phase 26 REWRITE: Push token swizzle via runtime (SAFE)
