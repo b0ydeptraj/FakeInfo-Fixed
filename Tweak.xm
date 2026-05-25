@@ -4075,7 +4075,9 @@ static void _fakeDidRegisterPush(id self, SEL _cmd, UIApplication *app, NSData *
 // ============================================================================
 
 static NSSet *_userDefaultsFingerprintKeys = nil;
-static BOOL _isInsideUserDefaultsHook = NO;
+// Thread-local reentrancy guard: prevents recursive calls within the SAME thread
+// while allowing normal operation on other threads concurrently.
+static __thread BOOL _isInsideUserDefaultsHook = NO;
 
 static void _initUserDefaultsFingerprintKeys(void) {
     static dispatch_once_t onceToken;
@@ -4114,13 +4116,20 @@ static void _initUserDefaultsFingerprintKeys(void) {
 
 - (id)objectForKey:(NSString *)defaultName {
     if (_isInsideUserDefaultsHook) return %orig;
+    _isInsideUserDefaultsHook = YES;
     @try {
         _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
         if ([cfg isEnabled:@"hardwareInfo"] && defaultName) {
-            if ([defaultName hasPrefix:@"com.apple.device.cache_"]) return %orig;
+            if ([defaultName hasPrefix:@"com.apple.device.cache_"]) {
+                _isInsideUserDefaultsHook = NO;
+                return %orig;
+            }
+            if ([defaultName hasPrefix:@"com.apple.uikit."]) {
+                _isInsideUserDefaultsHook = NO;
+                return %orig;
+            }
             _initUserDefaultsFingerprintKeys();
             if ([_userDefaultsFingerprintKeys containsObject:defaultName]) {
-                _isInsideUserDefaultsHook = YES;
                 NSString *spoofed = generateStableUUID(@"ud_spoof");
                 _isInsideUserDefaultsHook = NO;
                 return spoofed;
@@ -4130,31 +4139,39 @@ static void _initUserDefaultsFingerprintKeys(void) {
                  [lower containsString:@"fingerprint"] || [lower containsString:@"unique_id"] ||
                  [lower containsString:@"uniqueid"] || [lower containsString:@"tracking_id"]) &&
                 ![lower containsString:@"notification"] && ![lower containsString:@"push"]) {
-                _isInsideUserDefaultsHook = YES;
                 NSString *spoofed = generateStableUUID(@"ud_spoof");
                 _isInsideUserDefaultsHook = NO;
                 return spoofed;
             }
         }
-    } @catch(NSException *e) { _isInsideUserDefaultsHook = NO; }
+    } @catch(NSException *e) {}
+    _isInsideUserDefaultsHook = NO;
     return %orig;
 }
 
 - (NSString *)stringForKey:(NSString *)defaultName {
     if (_isInsideUserDefaultsHook) return %orig;
+    _isInsideUserDefaultsHook = YES;
     @try {
         _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
         if ([cfg isEnabled:@"hardwareInfo"] && defaultName) {
-            if ([defaultName hasPrefix:@"com.apple.device.cache_"]) return %orig;
+            if ([defaultName hasPrefix:@"com.apple.device.cache_"]) {
+                _isInsideUserDefaultsHook = NO;
+                return %orig;
+            }
+            if ([defaultName hasPrefix:@"com.apple.uikit."]) {
+                _isInsideUserDefaultsHook = NO;
+                return %orig;
+            }
             _initUserDefaultsFingerprintKeys();
             if ([_userDefaultsFingerprintKeys containsObject:defaultName]) {
-                _isInsideUserDefaultsHook = YES;
                 NSString *spoofed = generateStableUUID(@"ud_spoof");
                 _isInsideUserDefaultsHook = NO;
                 return spoofed;
             }
         }
-    } @catch(NSException *e) { _isInsideUserDefaultsHook = NO; }
+    } @catch(NSException *e) {}
+    _isInsideUserDefaultsHook = NO;
     return %orig;
 }
 
