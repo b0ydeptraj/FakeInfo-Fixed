@@ -209,6 +209,40 @@ static __thread int _scHookDepth = 0;
 #define SC_HOOK_RETURN_VOID \
     do { _scHookDepth--; return; } while(0)
 
+// ============================================================================
+// MARK: - Pre-Hook IMP Cache
+// Must capture Apple's original IMP BEFORE any Logos swizzle installs.
+// Uses constructor priority 101 which runs early (lower = earlier on Apple linker,
+// Logos default is at priority 0, so 101 runs BEFORE Logos auto-init).
+//
+// IMPORTANT: On iOS with DYLD_INSERT_LIBRARIES, our dylib loads before the
+// main binary's +load. So these captures are clean Apple IMPs.
+//
+// When SC_IS_REENTRANT, calling %orig loops (ShopeeVN's hook calls [bundle infoDictionary]
+// which dispatches through ObjC runtime back to our hook endlessly). Instead we call
+// the captured Apple IMP directly, bypassing all hook chains entirely.
+// ============================================================================
+
+// Function pointer types for direct IMP calls
+typedef NSDictionary *(*InfoDictionaryIMP)(id, SEL);
+typedef id           (*ObjectForKeyIMP)(id, SEL, NSString *);
+
+// Cached Apple IMPs (set before any swizzle)
+static InfoDictionaryIMP _apple_infoDictionary = NULL;
+static ObjectForKeyIMP   _apple_objectForKey   = NULL;
+
+// Save Apple IMPs before any hook (priority 101 = runs before Logos which uses 0)
+__attribute__((constructor(101)))
+static void _scSaveAppleIMPs(void) {
+    Class bundleClass = objc_getClass("NSBundle");
+    if (bundleClass) {
+        _apple_infoDictionary = (InfoDictionaryIMP)
+            class_getMethodImplementation(bundleClass, @selector(infoDictionary));
+        _apple_objectForKey   = (ObjectForKeyIMP)
+            class_getMethodImplementation(bundleClass, @selector(objectForInfoDictionaryKey:));
+    }
+}
+
 void _showConfigUI(void);
 void _setupGR(void);
 
@@ -2100,7 +2134,13 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (NSDictionary *)infoDictionary {
-    if (SC_IS_REENTRANT) return %orig;
+    // CRITICAL: When reentrant, call Apple IMP directly to break the mutual recursion
+    // with ShopeeVN's hook (which calls [bundle infoDictionary] → ObjC dispatch → us → loop).
+    // %orig here would route to ShopeeVN's hook → infinite loop.
+    if (SC_IS_REENTRANT) {
+        if (_apple_infoDictionary) return _apple_infoDictionary(self, @selector(infoDictionary));
+        return nil;
+    }
     SC_HOOK_ENTER;
     @try {
         NSDictionary *origDict = %orig;
@@ -2123,7 +2163,11 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (id)objectForInfoDictionaryKey:(NSString *)key {
-    if (SC_IS_REENTRANT) return %orig;
+    // Same pattern: use Apple IMP directly when reentrant to avoid dispatch loops.
+    if (SC_IS_REENTRANT) {
+        if (_apple_objectForKey) return _apple_objectForKey(self, @selector(objectForInfoDictionaryKey:), key);
+        return nil;
+    }
     SC_HOOK_ENTER;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
