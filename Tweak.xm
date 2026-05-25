@@ -175,30 +175,38 @@ static BOOL gpsLocationInitialized = NO;
 // MARK: - Global Reentrancy Guard
 // Prevents infinite recursion when hooked methods call other hooked methods.
 // Uses thread-local storage so concurrent threads are NOT affected.
-// Usage: At the top of any %hook method that may recurse:
-//   SC_ENTER_HOOK  - increments depth; if already > 0, return %orig
-//   SC_LEAVE_HOOK  - decrements depth (call before every return)
+//
+// IMPORTANT: %orig cannot appear inside a #define — Logos only processes
+// %orig inside %hook method bodies. So the pattern for each hook is:
+//
+//   - (ReturnType)method {
+//       if (SC_IS_REENTRANT) return %orig;  // <-- %orig is HERE, in body
+//       SC_HOOK_ENTER;
+//       @try {
+//           // ... logic ...
+//           SC_HOOK_RETURN(value);
+//       } @catch(NSException *e) {}
+//       SC_HOOK_LEAVE;
+//       return %orig;
+//   }
 // ============================================================================
 static __thread int _scHookDepth = 0;
 
-#define SC_ENTER_HOOK \
-    if (_scHookDepth > 0) return %orig; \
-    _scHookDepth++;
+// Check if we're already inside one of our hooks on this thread
+#define SC_IS_REENTRANT (_scHookDepth > 0)
 
-#define SC_LEAVE_HOOK \
-    _scHookDepth--;
+// Increment depth at hook entry (after reentrant check)
+#define SC_HOOK_ENTER   _scHookDepth++
 
-// Variant for void-return methods
-#define SC_ENTER_HOOK_VOID \
-    if (_scHookDepth > 0) { %orig; return; } \
-    _scHookDepth++;
+// Decrement depth (call before passthrough return %orig)
+#define SC_HOOK_LEAVE   _scHookDepth--
 
-// Safe return macro (decrements before returning a value)
-#define SC_RETURN(val) \
+// Return a value and decrement depth (replaces bare 'return val' inside hooks)
+#define SC_HOOK_RETURN(val) \
     do { _scHookDepth--; return (val); } while(0)
 
-// Safe void return
-#define SC_RETURN_VOID \
+// Return void and decrement depth
+#define SC_HOOK_RETURN_VOID \
     do { _scHookDepth--; return; } while(0)
 
 void _showConfigUI(void);
@@ -2092,7 +2100,8 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (NSDictionary *)infoDictionary {
-    SC_ENTER_HOOK
+    if (SC_IS_REENTRANT) return %orig;
+    SC_HOOK_ENTER;
     @try {
         NSDictionary *origDict = %orig;
         // CRITICAL: Do NOT fake version for the main app bundle!
@@ -2100,32 +2109,32 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
         // Faking it causes forced update dialogs (e.g. Shopee "Update app to continue").
         // Only fake for framework/embedded bundles used in fingerprinting.
         if (self == [NSBundle mainBundle]) {
-            SC_RETURN(origDict);
+            SC_HOOK_RETURN(origDict);
         }
         NSMutableDictionary *dict = origDict ? [origDict mutableCopy] : [NSMutableDictionary dictionary];
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"appVersion"]) dict[@"CFBundleShortVersionString"] = [settings valueForKey:@"appVersion"];
         if ([settings isEnabled:@"bundleVersion"]) dict[@"CFBundleVersion"] = [settings valueForKey:@"bundleVersion"];
         if ([settings isEnabled:@"displayName"]) dict[@"CFBundleDisplayName"] = [settings valueForKey:@"displayName"];
-        SC_RETURN(dict);
+        SC_HOOK_RETURN(dict);
     } @catch(NSException *e) { _cflog(@"[CRASH] NSBundle.infoDictionary: %@", e.reason); }
-    SC_LEAVE_HOOK
+    SC_HOOK_LEAVE;
     return %orig;
 }
 
 - (id)objectForInfoDictionaryKey:(NSString *)key {
-    SC_ENTER_HOOK
+    if (SC_IS_REENTRANT) return %orig;
+    SC_HOOK_ENTER;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"jailbreak"]) {
             // Hide sideload/jailbreak indicators
             if ([key isEqualToString:@"SignerIdentity"]) {
-                _cflog(@"🛡️ objectForInfoDictionaryKey hidden: %@", key);
-                SC_RETURN(nil);
+                SC_HOOK_RETURN(nil);
             }
         }
     } @catch(NSException *e) {}
-    SC_LEAVE_HOOK
+    SC_HOOK_LEAVE;
     return %orig;
 }
 %end
@@ -2133,17 +2142,18 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // MARK: - NSProcessInfo Configuration
 %hook NSProcessInfo
 - (NSString *)operatingSystemVersionString {
-    SC_ENTER_HOOK
+    if (SC_IS_REENTRANT) return %orig;
+    SC_HOOK_ENTER;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"systemVersion"]) {
             NSString *v = [NSString stringWithFormat:@"Version %@ (Build %@)",
                    [settings valueForKey:@"systemVersion"],
                    [settings valueForKey:@"bundleVersion"] ?: @"UnknownBuild"];
-            SC_RETURN(v);
+            SC_HOOK_RETURN(v);
         }
     } @catch(NSException *e) { _cflog(@"[CRASH] NSProcessInfo.operatingSystemVersionString: %@", e.reason); }
-    SC_LEAVE_HOOK
+    SC_HOOK_LEAVE;
     return %orig;
 }
 %end
@@ -2151,47 +2161,51 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // MARK: - Security Configuration
 %hook NSFileManager
 - (BOOL)fileExistsAtPath:(NSString *)path {
-    SC_ENTER_HOOK
+    if (SC_IS_REENTRANT) return %orig;
+    SC_HOOK_ENTER;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"jailbreak"] && path && jailbreakFilePaths) {
             for (NSString *jbPath in jailbreakFilePaths) {
                 if ([path hasPrefix:jbPath] || [path isEqualToString:jbPath]) {
-                    SC_RETURN(NO);
+                    SC_HOOK_RETURN(NO);
                 }
             }
         }
     } @catch(NSException *e) {}
-    SC_LEAVE_HOOK
+    SC_HOOK_LEAVE;
     return %orig;
 }
 
 - (BOOL)fileExistsAtPath:(NSString *)path isDirectory:(BOOL *)isDirectory {
-    SC_ENTER_HOOK
+    if (SC_IS_REENTRANT) return %orig;
+    SC_HOOK_ENTER;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"jailbreak"] && path && jailbreakFilePaths) {
             for (NSString *jbPath in jailbreakFilePaths) {
                 if ([path hasPrefix:jbPath] || [path isEqualToString:jbPath]) {
-                    _cflog(@"ðŸ›¡ï¸  fileExistsAtPath:isDirectory hidden: %@", path);
                     if (isDirectory) *isDirectory = NO;
-                    SC_RETURN(NO);
+                    SC_HOOK_RETURN(NO);
                 }
             }
         }
     } @catch(NSException *e) {}
-    SC_LEAVE_HOOK
+    SC_HOOK_LEAVE;
     return %orig;
 }
 
 - (NSArray *)contentsOfDirectoryAtPath:(NSString *)path error:(NSError **)error {
-    SC_ENTER_HOOK
+    if (SC_IS_REENTRANT) return %orig;
+    SC_HOOK_ENTER;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"jailbreak"]) {
             if ([path isEqualToString:@"/Applications"]) {
-                SC_LEAVE_HOOK
+                // Temporarily release depth so the %orig call below works normally
+                SC_HOOK_LEAVE;
                 NSArray *orig = %orig;
+                SC_HOOK_ENTER;
                 NSMutableArray *filtered = [NSMutableArray array];
                 NSArray *hiddenApps = @[@"Cydia.app", @"Sileo.app", @"Zebra.app", @"Filza.app", @"NewTerm.app"];
                 for (NSString *item in orig) {
@@ -2199,12 +2213,11 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
                         [filtered addObject:item];
                     }
                 }
-                _cflog(@"ðŸ›¡ï¸  Filtered /Applications directory");
-                return filtered;
+                SC_HOOK_RETURN(filtered);
             }
         }
     } @catch(NSException *e) {}
-    SC_LEAVE_HOOK
+    SC_HOOK_LEAVE;
     return %orig;
 }
 %end
