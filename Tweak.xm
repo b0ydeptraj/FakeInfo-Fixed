@@ -210,30 +210,39 @@ static __thread int _scHookDepth = 0;
     do { _scHookDepth--; return; } while(0)
 
 // ============================================================================
-// MARK: - Pre-Hook IMP Cache
-// Must capture Apple's original IMP BEFORE any Logos swizzle installs.
-// Uses constructor priority 101 which runs early (lower = earlier on Apple linker,
-// Logos default is at priority 0, so 101 runs BEFORE Logos auto-init).
+// MARK: - Pre-Hook IMP Cache (captured in +load, NOT constructor)
 //
-// IMPORTANT: On iOS with DYLD_INSERT_LIBRARIES, our dylib loads before the
-// main binary's +load. So these captures are clean Apple IMPs.
+// WHY +load and NOT __attribute__((constructor)):
+//   Timeline on iOS with DYLD_INSERT_LIBRARIES:
+//     1. Our dylib loads → our +load runs  (BEFORE app binary +loads)
+//     2. ShopeeVN binary +load runs        (swizzles infoDictionary)
+//     3. All __attribute__((constructor)) functions run (including Logos hooks)
 //
-// When SC_IS_REENTRANT, calling %orig loops (ShopeeVN's hook calls [bundle infoDictionary]
-// which dispatches through ObjC runtime back to our hook endlessly). Instead we call
-// the captured Apple IMP directly, bypassing all hook chains entirely.
+//   If we use constructor(101), it runs at step 3 AFTER ShopeeVN already
+//   swizzled → we'd save ShopeeVN's IMP, not Apple's.
+//
+//   Using +load (step 1) guarantees we capture the unswizzled Apple IMP.
+//
+// USAGE in hooks: When SC_IS_REENTRANT, call _apple_infoDictionary(self,sel)
+// directly via IMP pointer — bypasses ALL ObjC dispatch and breaks the
+// mutual recursion with ShopeeVN's hook chain.
 // ============================================================================
 
-// Function pointer types for direct IMP calls
+// Function pointer types for direct IMP calls (bypassing ObjC dispatch)
 typedef NSDictionary *(*InfoDictionaryIMP)(id, SEL);
 typedef id           (*ObjectForKeyIMP)(id, SEL, NSString *);
 
-// Cached Apple IMPs (set before any swizzle)
+// Cached Apple IMPs captured in +load (before any app swizzles)
 static InfoDictionaryIMP _apple_infoDictionary = NULL;
 static ObjectForKeyIMP   _apple_objectForKey   = NULL;
 
-// Save Apple IMPs before any hook (priority 101 = runs before Logos which uses 0)
-__attribute__((constructor(101)))
-static void _scSaveAppleIMPs(void) {
+// This class exists ONLY to host +load so we can capture Apple IMPs early.
+// Its +load runs before the app binary's +load (since our dylib is injected first).
+@interface _SCAppleIMPCapture : NSObject
+@end
+@implementation _SCAppleIMPCapture
++ (void)load {
+    // At this point: Apple's original infoDictionary is not yet swizzled by anyone.
     Class bundleClass = objc_getClass("NSBundle");
     if (bundleClass) {
         _apple_infoDictionary = (InfoDictionaryIMP)
@@ -242,6 +251,7 @@ static void _scSaveAppleIMPs(void) {
             class_getMethodImplementation(bundleClass, @selector(objectForInfoDictionaryKey:));
     }
 }
+@end
 
 void _showConfigUI(void);
 void _setupGR(void);
