@@ -194,22 +194,27 @@ static BOOL gpsLocationInitialized = NO;
 // ============================================================================
 static __thread int _scHookDepth = 0;
 
+static inline void _sc_hook_leave_cleanup(int *unused) {
+    _scHookDepth--;
+}
+
 // Check if we're already inside one of our hooks on this thread
 #define SC_IS_REENTRANT (_scHookDepth > 0)
 
-// Increment depth at hook entry (after reentrant check)
-#define SC_HOOK_ENTER   _scHookDepth++
+// Increment depth at hook entry, setup cleanup when leaving scope
+#define SC_HOOK_ENTER \
+    _scHookDepth++; \
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
-// Decrement depth (call before passthrough return %orig)
-#define SC_HOOK_LEAVE   _scHookDepth--
+// SC_HOOK_LEAVE is no longer necessary before returns!
+// (Kept for compatibility to avoid modifying 100+ files)
+#define SC_HOOK_LEAVE /* nothing */
 
-// Return a value and decrement depth (replaces bare 'return val' inside hooks)
-#define SC_HOOK_RETURN(val) \
-    do { _scHookDepth--; return (val); } while(0)
+// Return a value (cleanup will run automatically)
+#define SC_HOOK_RETURN(val) return (val)
 
-// Return void and decrement depth
-#define SC_HOOK_RETURN_VOID \
-    do { _scHookDepth--; return; } while(0)
+// Return void
+#define SC_HOOK_RETURN_VOID return
 
 // ============================================================================
 // MARK: - Pre-Hook IMP Cache
@@ -4211,6 +4216,14 @@ static NSSet *_userDefaultsFingerprintKeys = nil;
 // while allowing normal operation on other threads concurrently.
 static __thread BOOL _isInsideUserDefaultsHook = NO;
 
+static inline void _sc_ud_hook_leave_cleanup(int *unused) {
+    _isInsideUserDefaultsHook = NO;
+}
+
+#define SC_UD_HOOK_ENTER \
+    _isInsideUserDefaultsHook = YES; \
+    __attribute__((cleanup(_sc_ud_hook_leave_cleanup))) int __ud_guard = 0
+
 static void _initUserDefaultsFingerprintKeys(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
@@ -4258,22 +4271,19 @@ static void _initUserDefaultsFingerprintKeys(void) {
         }
         return nil;
     }
-    _isInsideUserDefaultsHook = YES;
+    SC_UD_HOOK_ENTER;
     @try {
         _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
         if ([cfg isEnabled:@"hardwareInfo"] && defaultName) {
             if ([defaultName hasPrefix:@"com.apple.device.cache_"]) {
-                _isInsideUserDefaultsHook = NO;
                 return %orig;
             }
             if ([defaultName hasPrefix:@"com.apple.uikit."]) {
-                _isInsideUserDefaultsHook = NO;
                 return %orig;
             }
             _initUserDefaultsFingerprintKeys();
             if ([_userDefaultsFingerprintKeys containsObject:defaultName]) {
                 NSString *spoofed = generateStableUUID(@"ud_spoof");
-                _isInsideUserDefaultsHook = NO;
                 return spoofed;
             }
             NSString *lower = [defaultName lowercaseString];
@@ -4282,12 +4292,10 @@ static void _initUserDefaultsFingerprintKeys(void) {
                  [lower containsString:@"uniqueid"] || [lower containsString:@"tracking_id"]) &&
                 ![lower containsString:@"notification"] && ![lower containsString:@"push"]) {
                 NSString *spoofed = generateStableUUID(@"ud_spoof");
-                _isInsideUserDefaultsHook = NO;
                 return spoofed;
             }
         }
     } @catch(NSException *e) {}
-    _isInsideUserDefaultsHook = NO;
     return %orig;
 }
 
@@ -4309,27 +4317,23 @@ static void _initUserDefaultsFingerprintKeys(void) {
         }
         return nil;
     }
-    _isInsideUserDefaultsHook = YES;
+    SC_UD_HOOK_ENTER;
     @try {
         _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
         if ([cfg isEnabled:@"hardwareInfo"] && defaultName) {
             if ([defaultName hasPrefix:@"com.apple.device.cache_"]) {
-                _isInsideUserDefaultsHook = NO;
                 return %orig;
             }
             if ([defaultName hasPrefix:@"com.apple.uikit."]) {
-                _isInsideUserDefaultsHook = NO;
                 return %orig;
             }
             _initUserDefaultsFingerprintKeys();
             if ([_userDefaultsFingerprintKeys containsObject:defaultName]) {
                 NSString *spoofed = generateStableUUID(@"ud_spoof");
-                _isInsideUserDefaultsHook = NO;
                 return spoofed;
             }
         }
     } @catch(NSException *e) {}
-    _isInsideUserDefaultsHook = NO;
     return %orig;
 }
 
