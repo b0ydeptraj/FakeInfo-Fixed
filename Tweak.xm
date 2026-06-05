@@ -50,6 +50,44 @@ Class* _objc_copyClassList_handler(unsigned int *outCount);  // forward decl
 
 // C-safe flag for hooks that run before ObjC is ready
 static BOOL gJailbreakHidingEnabled = NO;
+static BOOL gSpoofHardwareEnabled = NO;
+static BOOL gSpoofDeviceEnabled = NO;
+static BOOL gSpoofDarwinEnabled = NO;
+static BOOL gSpoofBootTimeEnabled = NO;
+static BOOL gSpoofNetworkEnabled = NO;
+
+static char gSpoofDeviceModel[64] = "iPhone14,5";
+static char gSpoofDarwinVersion[64] = "21.6.0";
+static char gSpoofBootTime[64] = "1672531200";
+static char gSpoofWiFiIP[64] = "192.168.1.100";
+
+static void _updateCSpoofCaches(_UIDeviceConfig *settings) {
+    if (!settings) return;
+    gJailbreakHidingEnabled = [settings isEnabled:@"jailbreak"];
+    gSpoofHardwareEnabled = [settings isEnabled:@"hardwareInfo"];
+    gSpoofDeviceEnabled = [settings isEnabled:@"deviceModel"];
+    gSpoofDarwinEnabled = [settings isEnabled:@"darwinVersion"];
+    gSpoofBootTimeEnabled = [settings isEnabled:@"bootTime"];
+    gSpoofNetworkEnabled = [settings isEnabled:@"wifiIP"];
+    
+    if (gSpoofDeviceEnabled) {
+        NSString *val = [settings valueForKey:@"deviceModel"];
+        if (val) strncpy(gSpoofDeviceModel, [val UTF8String], sizeof(gSpoofDeviceModel) - 1);
+    }
+    if (gSpoofDarwinEnabled) {
+        NSString *val = [settings valueForKey:@"darwinVersion"];
+        if (val) strncpy(gSpoofDarwinVersion, [val UTF8String], sizeof(gSpoofDarwinVersion) - 1);
+    }
+    if (gSpoofBootTimeEnabled) {
+        NSString *val = [settings valueForKey:@"bootTime"];
+        if (val) strncpy(gSpoofBootTime, [val UTF8String], sizeof(gSpoofBootTime) - 1);
+    }
+    if (gSpoofNetworkEnabled) {
+        NSString *val = [settings valueForKey:@"wifiIP"];
+        if (val) strncpy(gSpoofWiFiIP, [val UTF8String], sizeof(gSpoofWiFiIP) - 1);
+    }
+}
+
 
 // Forward declaration for container manager (full definition after _UIDeviceConfig)
 @class _SCContainerManager;
@@ -422,6 +460,7 @@ void CrashHandler(int sig) {
     if (self = [super init]) {
         [self loadBaselineConfig];
         [self restoreConfig];
+        _updateCSpoofCaches(self);
     }
     return self;
 }
@@ -1732,9 +1771,8 @@ int _sys_ctl_handler(const char *name, void *oldp, size_t *oldlenp, void *newp, 
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
 
     @try {
-        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-        if ([settings isEnabled:@"deviceModel"] && strcmp(name, "hw.machine") == 0) {
-            const char *val = [[settings valueForKey:@"deviceModel"] UTF8String];
+        if (gSpoofDeviceEnabled && strcmp(name, "hw.machine") == 0) {
+            const char *val = gSpoofDeviceModel;
             size_t len = strlen(val) + 1;
             if (oldlenp && !oldp) {
                 *oldlenp = len;
@@ -1746,8 +1784,8 @@ int _sys_ctl_handler(const char *name, void *oldp, size_t *oldlenp, void *newp, 
                 return 0;
             }
         }
-        if ([settings isEnabled:@"darwinVersion"] && strcmp(name, "kern.osrelease") == 0) {
-            const char *val = [[settings valueForKey:@"darwinVersion"] UTF8String];
+        if (gSpoofDarwinEnabled && strcmp(name, "kern.osrelease") == 0) {
+            const char *val = gSpoofDarwinVersion;
             size_t len = strlen(val) + 1;
             if (oldlenp && !oldp) {
                 *oldlenp = len;
@@ -1760,7 +1798,7 @@ int _sys_ctl_handler(const char *name, void *oldp, size_t *oldlenp, void *newp, 
             }
         }
         // CPU/hardware info - match processorCount=6 and device model
-        if ([settings isEnabled:@"hardwareInfo"]) {
+        if (gSpoofHardwareEnabled) {
             if (strcmp(name, "hw.ncpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
                 *(int *)oldp = 6;
                 return 0;
@@ -1782,7 +1820,7 @@ int _sys_ctl_handler(const char *name, void *oldp, size_t *oldlenp, void *newp, 
             }
         }
         // CPU/hardware info
-        if ([settings isEnabled:@"hardwareInfo"]) {
+        if (gSpoofHardwareEnabled) {
             if (strcmp(name, "hw.ncpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
                 *(int *)oldp = 6; return 0;
             }
@@ -1856,8 +1894,7 @@ int _statfs_handler(const char *path, struct statfs *buf) {
     int ret = orig_statfs_ptr ? orig_statfs_ptr(path, buf) : -1;
     if (ret != 0) return ret;
     @try {
-        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-        if ([settings isEnabled:@"hardwareInfo"]) {
+        if (gSpoofHardwareEnabled) {
             NSNumber *totalDisk = [settings valueForKey:@"totalDiskSpace"];
             NSNumber *freeDisk = [settings valueForKey:@"freeDiskSpace"];
             if (totalDisk && freeDisk && buf) {
@@ -1932,15 +1969,14 @@ int _sys_uname_handler(struct utsname *name) {
     if (ret != 0) return ret;
     
     @try {
-        _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-        if ([settings isEnabled:@"deviceModel"]) {
+        if (gSpoofDeviceEnabled) {
             NSString *fakeModel = [settings valueForKey:@"deviceModel"];
             if (fakeModel) {
                 strncpy(name->machine, [fakeModel UTF8String], sizeof(name->machine) - 1);
                 name->machine[sizeof(name->machine) - 1] = '\0';
             }
         }
-        if ([settings isEnabled:@"darwinVersion"]) {
+        if (gSpoofDarwinEnabled) {
             NSString *fakeDarwin = [settings valueForKey:@"darwinVersion"];
             if (fakeDarwin) {
                 strncpy(name->release, [fakeDarwin UTF8String], sizeof(name->release) - 1);
@@ -2072,8 +2108,7 @@ int _fs_stat_handler(const char *path, struct stat *buf) {
     _set_sc_depth(_get_sc_depth() + 1);
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
 
-    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-    if ([settings isEnabled:@"jailbreak"] && path) {
+    if (gJailbreakHidingEnabled && path) {
         if (_isJailbreakPath(path)) {
             errno = ENOENT;
             return -1;
@@ -2088,8 +2123,7 @@ int _fs_access_handler(const char *path, int amode) {
     _set_sc_depth(_get_sc_depth() + 1);
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
 
-    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-    if ([settings isEnabled:@"jailbreak"] && path) {
+    if (gJailbreakHidingEnabled && path) {
         if (_isJailbreakPath(path)) {
             return -1;
         }
@@ -2103,8 +2137,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
     _set_sc_depth(_get_sc_depth() + 1);
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
 
-    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-    if ([settings isEnabled:@"jailbreak"] && path) {
+    if (gJailbreakHidingEnabled && path) {
         if (_isJailbreakPath(path)) {
             return NULL;
         }
@@ -4173,8 +4206,7 @@ int _dbg_trace_handler(int request, pid_t pid, caddr_t addr, int data) {
     _set_sc_depth(_get_sc_depth() + 1);
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
 
-    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-    if ([settings isEnabled:@"jailbreak"]) {
+    if (gJailbreakHidingEnabled) {
         // PT_DENY_ATTACH = 31
         if (request == 31) {
             _cflog(@"ðŸ›¡ï¸ ptrace PT_DENY_ATTACH blocked");
@@ -4190,8 +4222,7 @@ pid_t _proc_fork_handler(void) {
     _set_sc_depth(_get_sc_depth() + 1);
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
 
-    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-    if ([settings isEnabled:@"jailbreak"]) {
+    if (gJailbreakHidingEnabled) {
         _cflog(@"ðŸ›¡ï¸ fork() blocked");
         return -1; // Return error (non-jailbroken devices should not allow fork)
     }
@@ -4204,8 +4235,7 @@ char* _env_get_handler(const char *name) {
     _set_sc_depth(_get_sc_depth() + 1);
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
 
-    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-    if ([settings isEnabled:@"jailbreak"] && name) {
+    if (gJailbreakHidingEnabled && name) {
         // Hide DYLD and other jailbreak-related env vars
         if (strstr(name, "DYLD") || 
             strstr(name, "MobileSubstrate") ||
@@ -4224,8 +4254,7 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
     _set_sc_depth(_get_sc_depth() + 1);
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
 
-    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-    if ([settings isEnabled:@"jailbreak"] && path) {
+    if (gJailbreakHidingEnabled && path) {
         if (strstr(path, "Cydia") || strstr(path, "bash") || strstr(path, "apt") ||
             strstr(path, "substrate") || strstr(path, "MobileSubstrate") ||
             strstr(path, "Library/MobileSubstrate") || strstr(path, "sileo") ||
@@ -4284,8 +4313,7 @@ int _dl_addr_handler(const void *addr, Dl_info *info) {
 
     int result = orig_dladdr_ptr ? orig_dladdr_ptr(addr, info) : 0;
     
-    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-    if (result && info && [settings isEnabled:@"jailbreak"]) {
+    if (result && info && gJailbreakHidingEnabled) {
         if (info->dli_fname) {
             if (strstr(info->dli_fname, "MobileSubstrate") ||
                 strstr(info->dli_fname, "substrate") ||
