@@ -210,48 +210,11 @@ static __thread int _scHookDepth = 0;
     do { _scHookDepth--; return; } while(0)
 
 // ============================================================================
-// MARK: - Pre-Hook IMP Cache (captured in +load, NOT constructor)
-//
-// WHY +load and NOT __attribute__((constructor)):
-//   Timeline on iOS with DYLD_INSERT_LIBRARIES:
-//     1. Our dylib loads → our +load runs  (BEFORE app binary +loads)
-//     2. ShopeeVN binary +load runs        (swizzles infoDictionary)
-//     3. All __attribute__((constructor)) functions run (including Logos hooks)
-//
-//   If we use constructor(101), it runs at step 3 AFTER ShopeeVN already
-//   swizzled → we'd save ShopeeVN's IMP, not Apple's.
-//
-//   Using +load (step 1) guarantees we capture the unswizzled Apple IMP.
-//
-// USAGE in hooks: When SC_IS_REENTRANT, call _apple_infoDictionary(self,sel)
-// directly via IMP pointer — bypasses ALL ObjC dispatch and breaks the
-// mutual recursion with ShopeeVN's hook chain.
+// MARK: - Pre-Hook IMP Cache
+// Removed: Using +load or __attribute__((constructor)) to capture IMPs is unreliable 
+// if the target app uses a dynamic framework for anti-cheat that loads before our tweak.
+// We now use CoreFoundation (CFBundle) APIs directly in the reentrant path to bypass ObjC entirely.
 // ============================================================================
-
-// Function pointer types for direct IMP calls (bypassing ObjC dispatch)
-typedef NSDictionary *(*InfoDictionaryIMP)(id, SEL);
-typedef id           (*ObjectForKeyIMP)(id, SEL, NSString *);
-
-// Cached Apple IMPs captured in +load (before any app swizzles)
-static InfoDictionaryIMP _apple_infoDictionary = NULL;
-static ObjectForKeyIMP   _apple_objectForKey   = NULL;
-
-// This class exists ONLY to host +load so we can capture Apple IMPs early.
-// Its +load runs before the app binary's +load (since our dylib is injected first).
-@interface _SCAppleIMPCapture : NSObject
-@end
-@implementation _SCAppleIMPCapture
-+ (void)load {
-    // At this point: Apple's original infoDictionary is not yet swizzled by anyone.
-    Class bundleClass = objc_getClass("NSBundle");
-    if (bundleClass) {
-        _apple_infoDictionary = (InfoDictionaryIMP)
-            class_getMethodImplementation(bundleClass, @selector(infoDictionary));
-        _apple_objectForKey   = (ObjectForKeyIMP)
-            class_getMethodImplementation(bundleClass, @selector(objectForInfoDictionaryKey:));
-    }
-}
-@end
 
 void _showConfigUI(void);
 void _setupGR(void);
@@ -2144,11 +2107,25 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (NSDictionary *)infoDictionary {
-    // CRITICAL: When reentrant, call Apple IMP directly to break the mutual recursion
-    // with ShopeeVN's hook (which calls [bundle infoDictionary] → ObjC dispatch → us → loop).
-    // %orig here would route to ShopeeVN's hook → infinite loop.
+    // CRITICAL: When reentrant, we MUST bypass the ObjC runtime entirely!
+    // The target app's anti-cheat framework may load before our tweak and swizzle NSBundle.
+    // If we call %orig, or even capture their IMP in our +load, we end up calling THEIR hook.
+    // Their hook then calls [bundle infoDictionary], which calls us, causing an infinite loop.
+    // Using CFBundle APIs calls the underlying C functions directly, bypassing ObjC messaging!
     if (SC_IS_REENTRANT) {
-        if (_apple_infoDictionary) return _apple_infoDictionary(self, @selector(infoDictionary));
+        if (self == [NSBundle mainBundle]) {
+            return (__bridge NSDictionary *)CFBundleGetInfoDictionary(CFBundleGetMainBundle());
+        } else {
+            NSURL *url = [self bundleURL];
+            if (url) {
+                CFBundleRef cfBundle = CFBundleCreate(kCFAllocatorDefault, (__bridge CFURLRef)url);
+                if (cfBundle) {
+                    NSDictionary *dict = (__bridge NSDictionary *)CFBundleGetInfoDictionary(cfBundle);
+                    CFRelease(cfBundle);
+                    return dict;
+                }
+            }
+        }
         return nil;
     }
     SC_HOOK_ENTER;
@@ -2173,9 +2150,22 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (id)objectForInfoDictionaryKey:(NSString *)key {
-    // Same pattern: use Apple IMP directly when reentrant to avoid dispatch loops.
+    // Same pattern: use CFBundle API directly when reentrant to avoid dispatch loops.
     if (SC_IS_REENTRANT) {
-        if (_apple_objectForKey) return _apple_objectForKey(self, @selector(objectForInfoDictionaryKey:), key);
+        if (self == [NSBundle mainBundle]) {
+            NSDictionary *dict = (__bridge NSDictionary *)CFBundleGetInfoDictionary(CFBundleGetMainBundle());
+            return dict[key];
+        } else {
+            NSURL *url = [self bundleURL];
+            if (url) {
+                CFBundleRef cfBundle = CFBundleCreate(kCFAllocatorDefault, (__bridge CFURLRef)url);
+                if (cfBundle) {
+                    id val = (__bridge id)CFBundleGetValueForInfoDictionaryKey(cfBundle, (__bridge CFStringRef)key);
+                    CFRelease(cfBundle);
+                    return val;
+                }
+            }
+        }
         return nil;
     }
     SC_HOOK_ENTER;
