@@ -12,6 +12,7 @@
 #import <dlfcn.h>
 #import <execinfo.h>
 #import <sys/stat.h>
+#import <sys/mount.h>
 #import <Security/Security.h>
 #import <AdSupport/AdSupport.h>
 #import <CoreTelephony/CTCarrier.h>
@@ -2617,6 +2618,18 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // MARK: - NSFileManager Disk Space)
 %hook NSFileManager
 - (NSDictionary *)attributesOfFileSystemForPath:(NSString *)path error:(NSError **)error {
+    // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
+    if (SC_IS_REENTRANT) {
+        struct statfs st;
+        if (statfs([path UTF8String], &st) == 0) {
+            return @{
+                NSFileSystemSize: @((unsigned long long)st.f_blocks * st.f_bsize),
+                NSFileSystemFreeSize: @((unsigned long long)st.f_bfree * st.f_bsize)
+            };
+        }
+        return nil;
+    }
+    SC_HOOK_ENTER;
     NSDictionary *orig = %orig;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
@@ -2629,11 +2642,12 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
                 unsigned long long free = strtoull([freeStr UTF8String], NULL, 10);
                 fakeDict[NSFileSystemSize] = @(total);
                 fakeDict[NSFileSystemFreeSize] = @(free);
-                _cflog(@"ðŸ’¾ Faking disk: %.1fGB free / %.1fGB total", free / 1073741824.0, total / 1073741824.0);
-                return fakeDict;
+                _cflog(@"💾 Faking disk: %.1fGB free / %.1fGB total", free / 1073741824.0, total / 1073741824.0);
+                SC_HOOK_RETURN(fakeDict);
             }
         }
-    } @catch(NSException *e) { _cflog(@"[CRASH] NSFileManager.attributesOfFileSystemForPath: %@", e.reason); }
+    } @catch(NSException *e) {}
+    SC_HOOK_LEAVE;
     return orig;
 }
 %end
@@ -2739,6 +2753,19 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // MARK: - App Installation Date (NSFileManager attributesOfItemAtPath for app bundle)
 %hook NSFileManager
 - (NSDictionary *)attributesOfItemAtPath:(NSString *)path error:(NSError **)error {
+    // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
+    if (SC_IS_REENTRANT) {
+        struct stat st;
+        if (lstat([path UTF8String], &st) == 0) {
+            return @{
+                NSFileSize: @(st.st_size),
+                NSFileCreationDate: [NSDate dateWithTimeIntervalSince1970:st.st_ctime],
+                NSFileModificationDate: [NSDate dateWithTimeIntervalSince1970:st.st_mtime]
+            };
+        }
+        return nil;
+    }
+    SC_HOOK_ENTER;
     NSDictionary *orig = %orig;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
@@ -2756,11 +2783,12 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
                 NSDate *fakeDate = cachedInstallDate;
                 fakeDict[NSFileCreationDate] = fakeDate;
                 fakeDict[NSFileModificationDate] = fakeDate;
-                _cflog(@"ðŸ“… Faking app install date: %@", fakeDate);
-                return fakeDict;
+                _cflog(@"📅 Faking app install date: %@", fakeDate);
+                SC_HOOK_RETURN(fakeDict);
             }
         }
-    } @catch(NSException *e) { _cflog(@"[CRASH] NSFileManager.attributesOfItemAtPath: %@", e.reason); }
+    } @catch(NSException *e) {}
+    SC_HOOK_LEAVE;
     return orig;
 }
 %end
@@ -3328,8 +3356,28 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // MARK: - Phase 15: Process and Library Detection Bypass
 // ============================================================================
 
+#import <crt_externs.h>
+
 %hook NSProcessInfo
 - (NSDictionary *)environment {
+    // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
+    if (SC_IS_REENTRANT) {
+        char **env = *_NSGetEnviron();
+        NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+        if (env) {
+            for (int i = 0; env[i] != NULL; i++) {
+                NSString *envStr = [NSString stringWithUTF8String:env[i]];
+                NSRange range = [envStr rangeOfString:@"="];
+                if (range.location != NSNotFound) {
+                    NSString *key = [envStr substringToIndex:range.location];
+                    NSString *val = [envStr substringFromIndex:range.location + 1];
+                    dict[key] = val;
+                }
+            }
+        }
+        return dict;
+    }
+    SC_HOOK_ENTER;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"jailbreak"]) {
@@ -3341,9 +3389,10 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
             }
 
             _cflog(@"🛡️  Cleaned environment variables");
-            return env;
+            SC_HOOK_RETURN(env);
         }
     } @catch(NSException *e) {}
+    SC_HOOK_LEAVE;
     return %orig;
 }
 %end
