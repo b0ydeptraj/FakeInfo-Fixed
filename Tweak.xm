@@ -240,31 +240,31 @@ static inline void _sc_hook_leave_cleanup(int *unused) {
 
 #define SC_PREVENT_LOOP_OBJ \
     BOOL _was_reentrant = (_get_sc_depth() > 0); \
-    if (_get_sc_depth() > 5) { return nil; } \
+    if (_get_sc_depth() > 5) { return %orig; } \
     _set_sc_depth(_get_sc_depth() + 1); \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
 #define SC_PREVENT_LOOP_BOOL \
     BOOL _was_reentrant = (_get_sc_depth() > 0); \
-    if (_get_sc_depth() > 5) { return NO; } \
+    if (_get_sc_depth() > 5) { return %orig; } \
     _set_sc_depth(_get_sc_depth() + 1); \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
 #define SC_PREVENT_LOOP_INT \
     BOOL _was_reentrant = (_get_sc_depth() > 0); \
-    if (_get_sc_depth() > 5) { return 0; } \
+    if (_get_sc_depth() > 5) { return %orig; } \
     _set_sc_depth(_get_sc_depth() + 1); \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
 #define SC_PREVENT_LOOP_VOID \
     BOOL _was_reentrant = (_get_sc_depth() > 0); \
-    if (_get_sc_depth() > 5) { return; } \
+    if (_get_sc_depth() > 5) { %orig; return; } \
     _set_sc_depth(_get_sc_depth() + 1); \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
 #define SC_PREVENT_LOOP_STRUCT(type) \
     BOOL _was_reentrant = (_get_sc_depth() > 0); \
-    if (_get_sc_depth() > 5) { type _sc_dummy; memset(&_sc_dummy, 0, sizeof(type)); return _sc_dummy; } \
+    if (_get_sc_depth() > 5) { return %orig; } \
     _set_sc_depth(_get_sc_depth() + 1); \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
@@ -1734,6 +1734,10 @@ void _showConfigUI() {
 // MARK: - System Handlers (using saved original pointers)
 
 int _sys_ctl_handler(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
+    if (_get_sc_depth() > 5) { return orig_sysctlbyname_ptr ? orig_sysctlbyname_ptr(name, oldp, oldlenp, newp, newlen) : -1; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"deviceModel"] && strcmp(name, "hw.machine") == 0) {
@@ -1852,6 +1856,10 @@ int _sys_ctl_handler(const char *name, void *oldp, size_t *oldlenp, void *newp, 
 
 // statfs hook â€” disk space must match NSFileManager fake values
 int _statfs_handler(const char *path, struct statfs *buf) {
+    if (_get_sc_depth() > 5) { return orig_statfs_ptr ? orig_statfs_ptr(path, buf) : -1; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     int ret = orig_statfs_ptr ? orig_statfs_ptr(path, buf) : -1;
     if (ret != 0) return ret;
     @try {
@@ -1875,6 +1883,10 @@ int _statfs_handler(const char *path, struct statfs *buf) {
 
 // sysctl by OID number â€” apps bypass sysctlbyname by using raw OID
 int _sys_ctl_oid_handler(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
+    if (_get_sc_depth() > 5) { return orig_sysctl_ptr ? orig_sysctl_ptr(name, namelen, oldp, oldlenp, newp, newlen) : -1; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     @try {
         if (namelen >= 2 && name[0] == CTL_HW) {
             _UIDeviceConfig *settings = [_UIDeviceConfig shared];
@@ -1918,6 +1930,10 @@ int _sys_ctl_oid_handler(int *name, u_int namelen, void *oldp, size_t *oldlenp, 
 }
 
 int _sys_uname_handler(struct utsname *name) {
+    if (_get_sc_depth() > 5) { return orig_uname_ptr ? orig_uname_ptr(name) : -1; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     // FIXED: Call original via saved pointer
     int ret = orig_uname_ptr ? orig_uname_ptr(name) : -1;
     if (ret != 0) return ret;
@@ -1945,6 +1961,10 @@ int _sys_uname_handler(struct utsname *name) {
 }
 
 int _net_if_handler(struct ifaddrs **ifap) {
+    if (_get_sc_depth() > 5) { return orig_getifaddrs_ptr ? orig_getifaddrs_ptr(ifap) : -1; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     // FIXED: Call original via saved pointer
     int ret = orig_getifaddrs_ptr ? orig_getifaddrs_ptr(ifap) : -1;
     if (ret != 0 || !ifap || !*ifap) return ret;
@@ -2000,6 +2020,10 @@ static inline BOOL _isJailbreakPath(const char *path) {
 
 // strcmp hook - many apps use strcmp to check jailbreak strings
 int _str_cmp_handler(const char *s1, const char *s2) {
+    if (_get_sc_depth() > 5) { return orig_strcmp_ptr ? orig_strcmp_ptr(s1, s2) : 0; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     if (gJailbreakHidingEnabled && s1 && s2) {
         // If either string is a jailbreak path, pretend they never match
         if (_isJailbreakPath(s1) || _isJailbreakPath(s2)) {
@@ -2011,6 +2035,10 @@ int _str_cmp_handler(const char *s1, const char *s2) {
 
 // dlopen hook - apps try to load jailbreak libraries
 void* _dl_open_handler(const char *path, int mode) {
+    if (_get_sc_depth() > 5) { return orig_dlopen_ptr ? orig_dlopen_ptr(path, mode) : NULL; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     if (gJailbreakHidingEnabled && path) {
         if (strstr(path, "substrate") || strstr(path, "MobileSubstrate") ||
             strstr(path, "TweakInject") || strstr(path, "libhooker") ||
@@ -2024,6 +2052,10 @@ void* _dl_open_handler(const char *path, int mode) {
 
 // getuid/geteuid hook - jailbroken devices run as root (uid=0)
 uid_t _get_uid_handler(void) {
+    if (_get_sc_depth() > 5) { return orig_getuid_ptr ? orig_getuid_ptr() : 501; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     if (gJailbreakHidingEnabled) {
         return 501; // mobile user (non-root)
     }
@@ -2031,6 +2063,10 @@ uid_t _get_uid_handler(void) {
 }
 
 uid_t _get_euid_handler(void) {
+    if (_get_sc_depth() > 5) { return orig_geteuid_ptr ? orig_geteuid_ptr() : 501; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     if (gJailbreakHidingEnabled) {
         return 501; // mobile user (non-root)
     }
@@ -2039,6 +2075,10 @@ uid_t _get_euid_handler(void) {
 
 
 int _fs_stat_handler(const char *path, struct stat *buf) {
+    if (_get_sc_depth() > 5) { return orig_stat_ptr ? orig_stat_ptr(path, buf) : -1; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && path) {
         if (_isJailbreakPath(path)) {
@@ -2051,6 +2091,10 @@ int _fs_stat_handler(const char *path, struct stat *buf) {
 }
 
 int _fs_access_handler(const char *path, int amode) {
+    if (_get_sc_depth() > 5) { return orig_access_ptr ? orig_access_ptr(path, amode) : -1; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && path) {
         if (_isJailbreakPath(path)) {
@@ -2062,6 +2106,10 @@ int _fs_access_handler(const char *path, int amode) {
 }
 
 FILE* _fs_open_handler(const char *path, const char *mode) {
+    if (_get_sc_depth() > 5) { return orig_fopen_ptr ? orig_fopen_ptr(path, mode) : NULL; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && path) {
         if (_isJailbreakPath(path)) {
@@ -3580,6 +3628,10 @@ static BOOL _isDeviceFingerprintKeychainItem(CFDictionaryRef query) {
 
 
 OSStatus _sec_query_handler(CFDictionaryRef query, CFTypeRef *result) {
+    if (_get_sc_depth() > 5) { return orig_sec_query_ptr ? orig_sec_query_ptr(query, result) : -50; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"keychain"]) {
@@ -3600,6 +3652,10 @@ OSStatus _sec_query_handler(CFDictionaryRef query, CFTypeRef *result) {
 }
 
 OSStatus _sec_add_handler(CFDictionaryRef attributes, CFTypeRef *result) {
+    if (_get_sc_depth() > 5) { return orig_sec_add_ptr ? orig_sec_add_ptr(attributes, result) : -50; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"keychain"]) {
@@ -3620,6 +3676,10 @@ OSStatus _sec_add_handler(CFDictionaryRef attributes, CFTypeRef *result) {
 }
 
 OSStatus _sec_del_handler(CFDictionaryRef query) {
+    if (_get_sc_depth() > 5) { return orig_sec_del_ptr ? orig_sec_del_ptr(query) : -50; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"keychain"]) {
@@ -4116,6 +4176,10 @@ static int (*orig_posix_spawn)(pid_t *, const char *, void *, void *, char *cons
 
 // ptrace hook - prevent debugger detection
 int _dbg_trace_handler(int request, pid_t pid, caddr_t addr, int data) {
+    if (_get_sc_depth() > 5) { return orig_ptrace ? orig_ptrace(request, pid, addr, data) : -1; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"]) {
         // PT_DENY_ATTACH = 31
@@ -4129,6 +4193,10 @@ int _dbg_trace_handler(int request, pid_t pid, caddr_t addr, int data) {
 
 // fork hook - some apps use fork to detect jailbreak
 pid_t _proc_fork_handler(void) {
+    if (_get_sc_depth() > 5) { return orig_fork ? orig_fork() : -1; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"]) {
         _cflog(@"ðŸ›¡ï¸ fork() blocked");
@@ -4139,6 +4207,10 @@ pid_t _proc_fork_handler(void) {
 
 // getenv hook - hide jailbreak environment variables
 char* _env_get_handler(const char *name) {
+    if (_get_sc_depth() > 5) { return orig_getenv ? orig_getenv(name) : NULL; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && name) {
         // Hide DYLD and other jailbreak-related env vars
@@ -4155,6 +4227,10 @@ char* _env_get_handler(const char *name) {
 
 // lstat hook - hide jailbreak files with symlink detection
 int _fs_lstat_handler(const char *path, struct stat *buf) {
+    if (_get_sc_depth() > 5) { return orig_lstat ? orig_lstat(path, buf) : -1; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     _UIDeviceConfig *settings = [_UIDeviceConfig shared];
     if ([settings isEnabled:@"jailbreak"] && path) {
         if (strstr(path, "Cydia") || strstr(path, "bash") || strstr(path, "apt") ||
@@ -4209,6 +4285,10 @@ int _fs_lstat_handler(const char *path, struct stat *buf) {
 
 // dladdr hook - prevent hook detection via function address checking
 int _dl_addr_handler(const void *addr, Dl_info *info) {
+    if (_get_sc_depth() > 5) { return orig_dladdr_ptr ? orig_dladdr_ptr(addr, info) : 0; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     int result = orig_dladdr_ptr ? orig_dladdr_ptr(addr, info) : 0;
     
     _UIDeviceConfig *settings = [_UIDeviceConfig shared];
@@ -4529,6 +4609,10 @@ static BOOL _isHiddenClassName(const char *name) {
 }
 
 Class* _objc_copyClassList_handler(unsigned int *outCount) {
+    if (_get_sc_depth() > 5) { return orig_objc_copyClassList_ptr ? orig_objc_copyClassList_ptr(outCount) : NULL; }
+    _set_sc_depth(_get_sc_depth() + 1);
+    __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
+
     unsigned int originalCount = 0;
     Class *originalList = orig_objc_copyClassList_ptr ? orig_objc_copyClassList_ptr(&originalCount) : NULL;
     if (!originalList || !gJailbreakHidingEnabled) {
