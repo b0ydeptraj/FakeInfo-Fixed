@@ -2190,11 +2190,6 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 - (NSString *)operatingSystemVersionString {
     // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
     if (SC_IS_REENTRANT) {
-        char osversion[256] = {0};
-        size_t size = sizeof(osversion);
-        if (sysctlbyname("kern.osversion", osversion, &size, NULL, 0) == 0) {
-            return [NSString stringWithFormat:@"Version %@ (Build %s)", [[UIDevice currentDevice] systemVersion], osversion];
-        }
         return @"Version Unknown";
     }
     SC_HOOK_ENTER;
@@ -2217,8 +2212,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 - (BOOL)fileExistsAtPath:(NSString *)path {
     // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
     if (SC_IS_REENTRANT) {
-        if (!path) return NO;
-        return access([path UTF8String], F_OK) == 0;
+        return NO;
     }
     SC_HOOK_ENTER;
     @try {
@@ -2238,15 +2232,6 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 - (BOOL)fileExistsAtPath:(NSString *)path isDirectory:(BOOL *)isDirectory {
     // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
     if (SC_IS_REENTRANT) {
-        if (!path) {
-            if (isDirectory) *isDirectory = NO;
-            return NO;
-        }
-        struct stat st;
-        if (stat([path UTF8String], &st) == 0) {
-            if (isDirectory) *isDirectory = S_ISDIR(st.st_mode) ? YES : NO;
-            return YES;
-        }
         if (isDirectory) *isDirectory = NO;
         return NO;
     }
@@ -2269,19 +2254,6 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 - (NSArray *)contentsOfDirectoryAtPath:(NSString *)path error:(NSError **)error {
     // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
     if (SC_IS_REENTRANT) {
-        if (!path) return nil;
-        NSMutableArray *arr = [NSMutableArray array];
-        DIR *dir = opendir([path UTF8String]);
-        if (dir) {
-            struct dirent *dp;
-            while ((dp = readdir(dir)) != NULL) {
-                if (strcmp(dp->d_name, ".") != 0 && strcmp(dp->d_name, "..") != 0) {
-                    [arr addObject:[NSString stringWithUTF8String:dp->d_name]];
-                }
-            }
-            closedir(dir);
-            return arr;
-        }
         return nil;
     }
     SC_HOOK_ENTER;
@@ -2659,13 +2631,6 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 - (NSDictionary *)attributesOfFileSystemForPath:(NSString *)path error:(NSError **)error {
     // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
     if (SC_IS_REENTRANT) {
-        struct statfs st;
-        if (statfs([path UTF8String], &st) == 0) {
-            return @{
-                NSFileSystemSize: @((unsigned long long)st.f_blocks * st.f_bsize),
-                NSFileSystemFreeSize: @((unsigned long long)st.f_bfree * st.f_bsize)
-            };
-        }
         return nil;
     }
     SC_HOOK_ENTER;
@@ -2794,14 +2759,6 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 - (NSDictionary *)attributesOfItemAtPath:(NSString *)path error:(NSError **)error {
     // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
     if (SC_IS_REENTRANT) {
-        struct stat st;
-        if (lstat([path UTF8String], &st) == 0) {
-            return @{
-                NSFileSize: @(st.st_size),
-                NSFileCreationDate: [NSDate dateWithTimeIntervalSince1970:st.st_ctime],
-                NSFileModificationDate: [NSDate dateWithTimeIntervalSince1970:st.st_mtime]
-            };
-        }
         return nil;
     }
     SC_HOOK_ENTER;
@@ -3401,20 +3358,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 - (NSDictionary *)environment {
     // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
     if (SC_IS_REENTRANT) {
-        char **env = *_NSGetEnviron();
-        NSMutableDictionary *dict = [NSMutableDictionary dictionary];
-        if (env) {
-            for (int i = 0; env[i] != NULL; i++) {
-                NSString *envStr = [NSString stringWithUTF8String:env[i]];
-                NSRange range = [envStr rangeOfString:@"="];
-                if (range.location != NSNotFound) {
-                    NSString *key = [envStr substringToIndex:range.location];
-                    NSString *val = [envStr substringFromIndex:range.location + 1];
-                    dict[key] = val;
-                }
-            }
-        }
-        return dict;
+        return nil;
     }
     SC_HOOK_ENTER;
     @try {
