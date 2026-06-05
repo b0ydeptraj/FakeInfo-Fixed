@@ -1339,19 +1339,6 @@ static void _confirmFactoryReset(UIViewController *presenter) {
 }
 
 - (void)applyRandomConfig {
-    // Clear ALL keychain items to prevent persistence leak
-    NSArray *secClasses = @[
-        (__bridge id)kSecClassGenericPassword,
-        (__bridge id)kSecClassInternetPassword,
-        (__bridge id)kSecClassCertificate,
-        (__bridge id)kSecClassKey,
-        (__bridge id)kSecClassIdentity,
-    ];
-    for (id secClass in secClasses) {
-        NSDictionary *q = @{(__bridge id)kSecClass: secClass};
-        SecItemDelete((__bridge CFDictionaryRef)q);
-    }
-
     // Get device database from local bundle.
     NSArray *realDevices = [self getDeviceDatabase];
     
@@ -1770,14 +1757,7 @@ int _sys_ctl_handler(const char *name, void *oldp, size_t *oldlenp, void *newp, 
                 return 0;
             }
             if (strcmp(name, "hw.cpusubtype") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
-                NSString *model = [settings valueForKey:@"deviceModel"];
-                int subtype = 2; // Default A15/A16
-                if (model) {
-                    if ([model hasPrefix:@"iPhone17,"]) subtype = 3; // A18
-                    else if ([model hasPrefix:@"iPhone16,"]) subtype = 3; // A17
-                }
-                *(int *)oldp = subtype;
-                return 0;
+                *(int *)oldp = 2; return 0; // CPU_SUBTYPE_ARM64E
             }
         }
         // CPU/hardware info
@@ -1795,13 +1775,7 @@ int _sys_ctl_handler(const char *name, void *oldp, size_t *oldlenp, void *newp, 
                 *(int *)oldp = 16777228; return 0; // CPU_TYPE_ARM64
             }
             if (strcmp(name, "hw.cpusubtype") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
-                NSString *model = [settings valueForKey:@"deviceModel"];
-                int subtype = 2; // Default A15/A16
-                if (model) {
-                    if ([model hasPrefix:@"iPhone17,"]) subtype = 3; // A18
-                    else if ([model hasPrefix:@"iPhone16,"]) subtype = 3; // A17
-                }
-                *(int *)oldp = subtype;
+                *(int *)oldp = 2; // CPU_SUBTYPE_ARM64E
                 return 0;
             }
             if (strcmp(name, "hw.cpufamily") == 0 && oldp && oldlenp && *oldlenp >= sizeof(uint32_t)) {
@@ -2141,7 +2115,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 // Battery state hook
 - (UIDeviceBatteryState)batteryState {
-    SC_PREVENT_LOOP_OBJ;
+    SC_PREVENT_LOOP_INT;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"batteryLevel"]) {
@@ -2681,7 +2655,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // MARK: - NSProcessInfo Extended, Thermal State)
 %hook NSProcessInfo
 - (unsigned long long)physicalMemory {
-    SC_PREVENT_LOOP_OBJ;
+    SC_PREVENT_LOOP_INT;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2697,7 +2671,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (NSProcessInfoThermalState)thermalState {
-    SC_PREVENT_LOOP_OBJ;
+    SC_PREVENT_LOOP_INT;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3268,7 +3242,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 + (CLAuthorizationStatus)authorizationStatus {
-    SC_PREVENT_LOOP_OBJ;
+    SC_PREVENT_LOOP_INT;
     return %orig;
 }
 %end
