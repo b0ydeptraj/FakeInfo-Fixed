@@ -192,11 +192,31 @@ static BOOL gpsLocationInitialized = NO;
 //       return %orig;
 //   }
 // ============================================================================
-static __thread int _scHookDepth = 0;
+
+#include <pthread.h>
+
+static pthread_key_t _sc_depth_key;
+
+__attribute__((constructor))
+static void _sc_init_key() {
+    pthread_key_create(&_sc_depth_key, NULL);
+}
+
+static inline int _get_sc_depth() {
+    return (int)(long)pthread_getspecific(_sc_depth_key);
+}
+
+static inline void _set_sc_depth(int depth) {
+    pthread_setspecific(_sc_depth_key, (void *)(long)depth);
+}
 
 static inline void _sc_hook_leave_cleanup(int *unused) {
-    _scHookDepth--;
+    int depth = _get_sc_depth();
+    if (depth > 0) {
+        _set_sc_depth(depth - 1);
+    }
 }
+
 
 // Check if we're already inside one of our hooks on this thread
 #define SC_IS_REENTRANT (_was_reentrant)
@@ -204,7 +224,7 @@ static inline void _sc_hook_leave_cleanup(int *unused) {
 // Increment depth at hook entry, setup cleanup when leaving scope
 // DEPRECATED: Use SC_PREVENT_LOOP instead!
 #define SC_HOOK_ENTER \
-    _scHookDepth++; \
+    _set_sc_depth(_get_sc_depth() + 1); \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
 // SC_HOOK_LEAVE is no longer necessary before returns!
@@ -215,33 +235,33 @@ static inline void _sc_hook_leave_cleanup(int *unused) {
 #define SC_HOOK_RETURN(val) return (val)
 
 #define SC_PREVENT_LOOP_OBJ \
-    BOOL _was_reentrant = (_scHookDepth > 0); \
-    if (_scHookDepth > 5) { return nil; } \
-    _scHookDepth++; \
+    BOOL _was_reentrant = (_get_sc_depth() > 0); \
+    if (_get_sc_depth() > 5) { return nil; } \
+    _set_sc_depth(_get_sc_depth() + 1); \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
 #define SC_PREVENT_LOOP_BOOL \
-    BOOL _was_reentrant = (_scHookDepth > 0); \
-    if (_scHookDepth > 5) { return NO; } \
-    _scHookDepth++; \
+    BOOL _was_reentrant = (_get_sc_depth() > 0); \
+    if (_get_sc_depth() > 5) { return NO; } \
+    _set_sc_depth(_get_sc_depth() + 1); \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
 #define SC_PREVENT_LOOP_INT \
-    BOOL _was_reentrant = (_scHookDepth > 0); \
-    if (_scHookDepth > 5) { return 0; } \
-    _scHookDepth++; \
+    BOOL _was_reentrant = (_get_sc_depth() > 0); \
+    if (_get_sc_depth() > 5) { return 0; } \
+    _set_sc_depth(_get_sc_depth() + 1); \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
 #define SC_PREVENT_LOOP_VOID \
-    BOOL _was_reentrant = (_scHookDepth > 0); \
-    if (_scHookDepth > 5) { return; } \
-    _scHookDepth++; \
+    BOOL _was_reentrant = (_get_sc_depth() > 0); \
+    if (_get_sc_depth() > 5) { return; } \
+    _set_sc_depth(_get_sc_depth() + 1); \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
 #define SC_PREVENT_LOOP_STRUCT(type) \
-    BOOL _was_reentrant = (_scHookDepth > 0); \
-    if (_scHookDepth > 5) { type _sc_dummy; memset(&_sc_dummy, 0, sizeof(type)); return _sc_dummy; } \
-    _scHookDepth++; \
+    BOOL _was_reentrant = (_get_sc_depth() > 0); \
+    if (_get_sc_depth() > 5) { type _sc_dummy; memset(&_sc_dummy, 0, sizeof(type)); return _sc_dummy; } \
+    _set_sc_depth(_get_sc_depth() + 1); \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
 // Return void
