@@ -13,6 +13,7 @@
 #import <execinfo.h>
 #import <sys/stat.h>
 #import <sys/mount.h>
+#import <dirent.h>
 #import <Security/Security.h>
 #import <AdSupport/AdSupport.h>
 #import <CoreTelephony/CTCarrier.h>
@@ -2187,7 +2188,15 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // MARK: - NSProcessInfo Configuration
 %hook NSProcessInfo
 - (NSString *)operatingSystemVersionString {
-    if (SC_IS_REENTRANT) return %orig;
+    // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
+    if (SC_IS_REENTRANT) {
+        char osversion[256] = {0};
+        size_t size = sizeof(osversion);
+        if (sysctlbyname("kern.osversion", osversion, &size, NULL, 0) == 0) {
+            return [NSString stringWithFormat:@"Version %@ (Build %s)", [[UIDevice currentDevice] systemVersion], osversion];
+        }
+        return @"Version Unknown";
+    }
     SC_HOOK_ENTER;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
@@ -2197,7 +2206,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
                    [settings valueForKey:@"bundleVersion"] ?: @"UnknownBuild"];
             SC_HOOK_RETURN(v);
         }
-    } @catch(NSException *e) { _cflog(@"[CRASH] NSProcessInfo.operatingSystemVersionString: %@", e.reason); }
+    } @catch(NSException *e) {}
     SC_HOOK_LEAVE;
     return %orig;
 }
@@ -2206,7 +2215,11 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // MARK: - Security Configuration
 %hook NSFileManager
 - (BOOL)fileExistsAtPath:(NSString *)path {
-    if (SC_IS_REENTRANT) return %orig;
+    // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
+    if (SC_IS_REENTRANT) {
+        if (!path) return NO;
+        return access([path UTF8String], F_OK) == 0;
+    }
     SC_HOOK_ENTER;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
@@ -2223,7 +2236,20 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (BOOL)fileExistsAtPath:(NSString *)path isDirectory:(BOOL *)isDirectory {
-    if (SC_IS_REENTRANT) return %orig;
+    // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
+    if (SC_IS_REENTRANT) {
+        if (!path) {
+            if (isDirectory) *isDirectory = NO;
+            return NO;
+        }
+        struct stat st;
+        if (stat([path UTF8String], &st) == 0) {
+            if (isDirectory) *isDirectory = S_ISDIR(st.st_mode) ? YES : NO;
+            return YES;
+        }
+        if (isDirectory) *isDirectory = NO;
+        return NO;
+    }
     SC_HOOK_ENTER;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
@@ -2241,16 +2267,29 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (NSArray *)contentsOfDirectoryAtPath:(NSString *)path error:(NSError **)error {
-    if (SC_IS_REENTRANT) return %orig;
+    // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
+    if (SC_IS_REENTRANT) {
+        if (!path) return nil;
+        NSMutableArray *arr = [NSMutableArray array];
+        DIR *dir = opendir([path UTF8String]);
+        if (dir) {
+            struct dirent *dp;
+            while ((dp = readdir(dir)) != NULL) {
+                if (strcmp(dp->d_name, ".") != 0 && strcmp(dp->d_name, "..") != 0) {
+                    [arr addObject:[NSString stringWithUTF8String:dp->d_name]];
+                }
+            }
+            closedir(dir);
+            return arr;
+        }
+        return nil;
+    }
     SC_HOOK_ENTER;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"jailbreak"]) {
             if ([path isEqualToString:@"/Applications"]) {
-                // Temporarily release depth so the %orig call below works normally
-                SC_HOOK_LEAVE;
                 NSArray *orig = %orig;
-                SC_HOOK_ENTER;
                 NSMutableArray *filtered = [NSMutableArray array];
                 NSArray *hiddenApps = @[@"Cydia.app", @"Sileo.app", @"Zebra.app", @"Filza.app", @"NewTerm.app"];
                 for (NSString *item in orig) {
@@ -4264,7 +4303,17 @@ static void _initUserDefaultsFingerprintKeys(void) {
 %hook NSUserDefaults
 
 - (id)objectForKey:(NSString *)defaultName {
-    if (_isInsideUserDefaultsHook) return %orig;
+    // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
+    if (_isInsideUserDefaultsHook) {
+        if (!defaultName) return nil;
+        CFPropertyListRef val = CFPreferencesCopyAppValue((__bridge CFStringRef)defaultName, kCFPreferencesCurrentApplication);
+        if (val) {
+            id obj = (__bridge id)val;
+            CFRelease(val);
+            return obj;
+        }
+        return nil;
+    }
     _isInsideUserDefaultsHook = YES;
     @try {
         _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
@@ -4299,7 +4348,23 @@ static void _initUserDefaultsFingerprintKeys(void) {
 }
 
 - (NSString *)stringForKey:(NSString *)defaultName {
-    if (_isInsideUserDefaultsHook) return %orig;
+    // CRITICAL: Prevent NSInvocation loop with anti-cheat hooks.
+    if (_isInsideUserDefaultsHook) {
+        if (!defaultName) return nil;
+        CFPropertyListRef val = CFPreferencesCopyAppValue((__bridge CFStringRef)defaultName, kCFPreferencesCurrentApplication);
+        if (val) {
+            id obj = (__bridge id)val;
+            CFRelease(val);
+            if ([obj isKindOfClass:[NSString class]]) {
+                return (NSString *)obj;
+            }
+            if ([obj respondsToSelector:@selector(stringValue)]) {
+                return [obj stringValue];
+            }
+            return nil;
+        }
+        return nil;
+    }
     _isInsideUserDefaultsHook = YES;
     @try {
         _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
