@@ -2115,7 +2115,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 // Battery state hook
 - (UIDeviceBatteryState)batteryState {
-    SC_PREVENT_LOOP_INT;
+    SC_PREVENT_LOOP_STRUCT(UIDeviceBatteryState);
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"batteryLevel"]) {
@@ -2671,7 +2671,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 - (NSProcessInfoThermalState)thermalState {
-    SC_PREVENT_LOOP_INT;
+    SC_PREVENT_LOOP_STRUCT(NSProcessInfoThermalState);
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3242,7 +3242,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 }
 
 + (CLAuthorizationStatus)authorizationStatus {
-    SC_PREVENT_LOOP_INT;
+    SC_PREVENT_LOOP_STRUCT(CLAuthorizationStatus);
     return %orig;
 }
 %end
