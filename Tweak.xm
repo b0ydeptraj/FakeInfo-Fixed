@@ -216,31 +216,31 @@ static inline void _sc_hook_leave_cleanup(int *unused) {
 
 #define SC_PREVENT_LOOP_OBJ \
     BOOL _was_reentrant = (_scHookDepth > 0); \
-    if (_scHookDepth > 5) { _cflog(@"[SC] LOOP BROKEN in Obj return"); return nil; } \
+    if (_scHookDepth > 5) { return nil; } \
     _scHookDepth++; \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
 #define SC_PREVENT_LOOP_BOOL \
     BOOL _was_reentrant = (_scHookDepth > 0); \
-    if (_scHookDepth > 5) { _cflog(@"[SC] LOOP BROKEN in BOOL return"); return NO; } \
+    if (_scHookDepth > 5) { return NO; } \
     _scHookDepth++; \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
 #define SC_PREVENT_LOOP_INT \
     BOOL _was_reentrant = (_scHookDepth > 0); \
-    if (_scHookDepth > 5) { _cflog(@"[SC] LOOP BROKEN in INT return"); return 0; } \
+    if (_scHookDepth > 5) { return 0; } \
     _scHookDepth++; \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
 #define SC_PREVENT_LOOP_VOID \
     BOOL _was_reentrant = (_scHookDepth > 0); \
-    if (_scHookDepth > 5) { _cflog(@"[SC] LOOP BROKEN in VOID return"); return; } \
+    if (_scHookDepth > 5) { return; } \
     _scHookDepth++; \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
 #define SC_PREVENT_LOOP_STRUCT(type) \
     BOOL _was_reentrant = (_scHookDepth > 0); \
-    if (_scHookDepth > 5) { _cflog(@"[SC] LOOP BROKEN in STRUCT return"); type _sc_dummy; memset(&_sc_dummy, 0, sizeof(type)); return _sc_dummy; } \
+    if (_scHookDepth > 5) { type _sc_dummy; memset(&_sc_dummy, 0, sizeof(type)); return _sc_dummy; } \
     _scHookDepth++; \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
