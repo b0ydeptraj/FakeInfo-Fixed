@@ -193,20 +193,23 @@ static BOOL gpsLocationInitialized = NO;
 //   }
 // ============================================================================
 
+
 #include <pthread.h>
 
 static pthread_key_t _sc_depth_key;
+static pthread_once_t _sc_key_once = PTHREAD_ONCE_INIT;
 
-__attribute__((constructor))
-static void _sc_init_key() {
+static void _sc_make_key() {
     pthread_key_create(&_sc_depth_key, NULL);
 }
 
 static inline int _get_sc_depth() {
+    pthread_once(&_sc_key_once, _sc_make_key);
     return (int)(long)pthread_getspecific(_sc_depth_key);
 }
 
 static inline void _set_sc_depth(int depth) {
+    pthread_once(&_sc_key_once, _sc_make_key);
     pthread_setspecific(_sc_depth_key, (void *)(long)depth);
 }
 
@@ -216,6 +219,7 @@ static inline void _sc_hook_leave_cleanup(int *unused) {
         _set_sc_depth(depth - 1);
     }
 }
+
 
 
 // Check if we're already inside one of our hooks on this thread
