@@ -3621,7 +3621,7 @@ static BOOL _isDeviceFingerprintKeychainItem(CFDictionaryRef query) {
 
 
 OSStatus _sec_query_handler(CFDictionaryRef query, CFTypeRef *result) {
-    if (_get_sc_depth() > 5) { return orig_sec_query_ptr ? orig_sec_query_ptr(query, result) : -50; }
+    if (_get_sc_depth() > 5) { return orig_SecItemCopyMatching_ptr ? orig_SecItemCopyMatching_ptr(query, result) : -50; }
     _set_sc_depth(_get_sc_depth() + 1);
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
 
@@ -3645,7 +3645,7 @@ OSStatus _sec_query_handler(CFDictionaryRef query, CFTypeRef *result) {
 }
 
 OSStatus _sec_add_handler(CFDictionaryRef attributes, CFTypeRef *result) {
-    if (_get_sc_depth() > 5) { return orig_sec_add_ptr ? orig_sec_add_ptr(attributes, result) : -50; }
+    if (_get_sc_depth() > 5) { return orig_SecItemAdd_ptr ? orig_SecItemAdd_ptr(attributes, result) : -50; }
     _set_sc_depth(_get_sc_depth() + 1);
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
 
@@ -3669,7 +3669,7 @@ OSStatus _sec_add_handler(CFDictionaryRef attributes, CFTypeRef *result) {
 }
 
 OSStatus _sec_del_handler(CFDictionaryRef query) {
-    if (_get_sc_depth() > 5) { return orig_sec_del_ptr ? orig_sec_del_ptr(query) : -50; }
+    if (_get_sc_depth() > 5) { return orig_SecItemDelete_ptr ? orig_SecItemDelete_ptr(query) : -50; }
     _set_sc_depth(_get_sc_depth() + 1);
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
 
