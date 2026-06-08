@@ -64,7 +64,12 @@ static char gSpoofIdentifierForVendor[64] = "00000000-0000-0000-0000-00000000000
 static uint64_t gSpoofTotalDisk = 256000000000ULL;
 static uint64_t gSpoofFreeDisk = 128000000000ULL;
 
-static void _updateCSpoofCaches(id settings) {
+@interface _UIDeviceConfig : NSObject
+- (BOOL)isEnabled:(NSString *)key;
+- (id)valueForKey:(NSString *)key;
+@end
+
+static void _updateCSpoofCaches(_UIDeviceConfig *settings) {
     if (!settings) return;
     gJailbreakHidingEnabled = [settings isEnabled:@"jailbreak"];
     gSpoofHardwareEnabled = [settings isEnabled:@"hardwareInfo"];
