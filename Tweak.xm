@@ -60,6 +60,7 @@ static char gSpoofDeviceModel[64] = "iPhone14,5";
 static char gSpoofDarwinVersion[64] = "21.6.0";
 static char gSpoofBootTime[64] = "1672531200";
 static char gSpoofWiFiIP[64] = "192.168.1.100";
+static char gSpoofIdentifierForVendor[64] = "00000000-0000-0000-0000-000000000000";
 
 static void _updateCSpoofCaches(_UIDeviceConfig *settings) {
     if (!settings) return;
@@ -86,6 +87,8 @@ static void _updateCSpoofCaches(_UIDeviceConfig *settings) {
         NSString *val = [settings valueForKey:@"wifiIP"];
         if (val) strncpy(gSpoofWiFiIP, [val UTF8String], sizeof(gSpoofWiFiIP) - 1);
     }
+    NSString *idfv = [settings valueForKey:@"identifierForVendor"];
+    if (idfv) strncpy(gSpoofIdentifierForVendor, [idfv UTF8String], sizeof(gSpoofIdentifierForVendor) - 1);
 }
 
 
@@ -1770,117 +1773,72 @@ int _sys_ctl_handler(const char *name, void *oldp, size_t *oldlenp, void *newp, 
     _set_sc_depth(_get_sc_depth() + 1);
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
 
-    @try {
-        if (gSpoofDeviceEnabled && strcmp(name, "hw.machine") == 0) {
-            const char *val = gSpoofDeviceModel;
-            size_t len = strlen(val) + 1;
-            if (oldlenp && !oldp) {
-                *oldlenp = len;
-                return 0;
-            }
-            if (oldp && oldlenp && *oldlenp >= len) {
-                strcpy((char *)oldp, val);
-                *oldlenp = len;
-                return 0;
-            }
+    if (gSpoofDeviceEnabled && strcmp(name, "hw.machine") == 0) {
+        const char *val = gSpoofDeviceModel;
+        size_t len = strlen(val) + 1;
+        if (oldlenp && !oldp) {
+            *oldlenp = len;
+            return 0;
         }
-        if (gSpoofDarwinEnabled && strcmp(name, "kern.osrelease") == 0) {
-            const char *val = gSpoofDarwinVersion;
-            size_t len = strlen(val) + 1;
-            if (oldlenp && !oldp) {
-                *oldlenp = len;
-                return 0;
-            }
-            if (oldp && oldlenp && *oldlenp >= len) {
-                strcpy((char *)oldp, val);
-                *oldlenp = len;
-                return 0;
-            }
+        if (oldp && oldlenp && *oldlenp >= len) {
+            strcpy((char *)oldp, val);
+            *oldlenp = len;
+            return 0;
         }
-        // CPU/hardware info - match processorCount=6 and device model
-        if (gSpoofHardwareEnabled) {
-            if (strcmp(name, "hw.ncpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
-                *(int *)oldp = 6;
-                return 0;
-            }
-            if (strcmp(name, "hw.physicalcpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
-                *(int *)oldp = 6;
-                return 0;
-            }
-            if (strcmp(name, "hw.logicalcpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
-                *(int *)oldp = 6;
-                return 0;
-            }
-            if (strcmp(name, "hw.cputype") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
-                *(int *)oldp = 16777228; // CPU_TYPE_ARM64
-                return 0;
-            }
-            if (strcmp(name, "hw.cpusubtype") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
-                *(int *)oldp = 2; return 0; // CPU_SUBTYPE_ARM64E
-            }
-        }
-        // CPU/hardware info
-        if (gSpoofHardwareEnabled) {
-            if (strcmp(name, "hw.ncpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
-                *(int *)oldp = 6; return 0;
-            }
-            if (strcmp(name, "hw.physicalcpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
-                *(int *)oldp = 6; return 0;
-            }
-            if (strcmp(name, "hw.logicalcpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
-                *(int *)oldp = 6; return 0;
-            }
-            if (strcmp(name, "hw.cputype") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
-                *(int *)oldp = 16777228; return 0; // CPU_TYPE_ARM64
-            }
-            if (strcmp(name, "hw.cpusubtype") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
-                *(int *)oldp = 2; // CPU_SUBTYPE_ARM64E
-                return 0;
-            }
-            if (strcmp(name, "hw.cpufamily") == 0 && oldp && oldlenp && *oldlenp >= sizeof(uint32_t)) {
-                // Map model to CPU family
-                NSString *model = [settings valueForKey:@"deviceModel"];
-                uint32_t family = 0xe07c4c93; // CPUFAMILY_ARM_MONSOON_MISTRAL (A11, default)
-                if (model) {
-                    if ([model hasPrefix:@"iPhone17,"]) family = 0xda33d83d; // A18 Pro
-                    else if ([model hasPrefix:@"iPhone16,"]) family = 0x5f4dea93; // A17 Pro
-                    else if ([model hasPrefix:@"iPhone15,"]) family = 0xfa33415e; // A16
-                    else if ([model hasPrefix:@"iPhone14,"]) family = 0x8765edea; // A15
-                    else if ([model hasPrefix:@"iPhone13,"]) family = 0x1b588bb3; // A14
-                    else if ([model hasPrefix:@"iPhone12,"]) family = 0x462504d2; // A13
-                }
-                *(uint32_t *)oldp = family;
-                *oldlenp = sizeof(uint32_t);
-                return 0;
-            }
-            if (strcmp(name, "hw.memsize") == 0 && oldp && oldlenp && *oldlenp >= sizeof(uint64_t)) {
-                NSNumber *ram = [settings valueForKey:@"physicalMemory"];
-                if (ram) {
-                    *(uint64_t *)oldp = [ram unsignedLongLongValue];
-                    *oldlenp = sizeof(uint64_t);
-                    return 0;
-                }
-            }
-        }
-        // Boot time configuration
-        if ([settings isEnabled:@"bootTime"] && strcmp(name, "kern.boottime") == 0) {
-            NSString *bootTimeStr = [settings valueForKey:@"bootTime"];
-            if (bootTimeStr && oldlenp && !oldp) {
-                *oldlenp = sizeof(struct timeval);
-                return 0;
-            }
-            if (bootTimeStr && oldp && oldlenp && *oldlenp >= sizeof(struct timeval)) {
-                struct timeval *tv = (struct timeval *)oldp;
-                tv->tv_sec = (time_t)[bootTimeStr longLongValue];
-                tv->tv_usec = 0;
-                _cflog(@"Faking boot time: %@", bootTimeStr);
-                return 0;
-            }
-        }
-    } @catch(NSException *e) {
-        _cflog(@"[CRASH][sysctlbyname]: %@", e.reason);
     }
-    // FIXED: Call original via saved pointer
+    if (gSpoofDarwinEnabled && strcmp(name, "kern.osrelease") == 0) {
+        const char *val = gSpoofDarwinVersion;
+        size_t len = strlen(val) + 1;
+        if (oldlenp && !oldp) {
+            *oldlenp = len;
+            return 0;
+        }
+        if (oldp && oldlenp && *oldlenp >= len) {
+            strcpy((char *)oldp, val);
+            *oldlenp = len;
+            return 0;
+        }
+    }
+    if (gSpoofHardwareEnabled) {
+        if (strcmp(name, "hw.ncpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+            *(int *)oldp = 6;
+            return 0;
+        }
+        if (strcmp(name, "hw.physicalcpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+            *(int *)oldp = 6;
+            return 0;
+        }
+        if (strcmp(name, "hw.logicalcpu") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+            *(int *)oldp = 6;
+            return 0;
+        }
+        if (strcmp(name, "hw.cputype") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+            *(int *)oldp = 16777228; // CPU_TYPE_ARM64
+            return 0;
+        }
+        if (strcmp(name, "hw.cpusubtype") == 0 && oldp && oldlenp && *oldlenp >= sizeof(int)) {
+            *(int *)oldp = 2; // CPU_SUBTYPE_ARM64E
+            return 0;
+        }
+        if (strcmp(name, "hw.memsize") == 0 && oldp && oldlenp && *oldlenp >= sizeof(uint64_t)) {
+            *(uint64_t *)oldp = 4294967296ULL;
+            return 0;
+        }
+    }
+    if (gSpoofBootTimeEnabled && strcmp(name, "kern.boottime") == 0) {
+        if (oldp && oldlenp && *oldlenp >= sizeof(struct timeval)) {
+            struct timeval *tv = (struct timeval *)oldp;
+            // Parse gSpoofBootTime string to time_t
+            time_t bt = 1672531200; // default
+            if (gSpoofBootTime[0] != '\0') {
+                bt = (time_t)atoll(gSpoofBootTime);
+            }
+            tv->tv_sec = bt;
+            tv->tv_usec = 0;
+            return 0;
+        }
+    }
+    
     if (orig_sysctlbyname_ptr) return orig_sysctlbyname_ptr(name, oldp, oldlenp, newp, newlen);
     return -1;
 }
@@ -1917,44 +1875,25 @@ int _sys_ctl_oid_handler(int *name, u_int namelen, void *oldp, size_t *oldlenp, 
     _set_sc_depth(_get_sc_depth() + 1);
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
 
-    @try {
-        if (namelen >= 2 && name[0] == CTL_HW) {
-            _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-            
-            // HW_MEMSIZE (RAM) â€” must match NSProcessInfo.physicalMemory
-            if (name[1] == HW_MEMSIZE && [settings isEnabled:@"hardwareInfo"]) {
-                NSNumber *ram = [settings valueForKey:@"physicalMemory"];
-                if (ram && oldp && oldlenp) {
-                    if (*oldlenp >= sizeof(uint64_t)) {
-                        *(uint64_t *)oldp = [ram unsignedLongLongValue];
-                        *oldlenp = sizeof(uint64_t);
-                        return 0;
-                    }
-                }
-            }
-            
-            // HW_NCPU
-            if (name[1] == HW_NCPU && [settings isEnabled:@"hardwareInfo"] && oldp && oldlenp && *oldlenp >= sizeof(int)) {
-                *(int *)oldp = 6;
-                *oldlenp = sizeof(int);
-                return 0;
-            }
-            
-            // HW_MACHINE
-            if (name[1] == HW_MACHINE && [settings isEnabled:@"deviceModel"] && oldp && oldlenp) {
-                const char *val = [[settings valueForKey:@"deviceModel"] UTF8String];
-                if (val) {
-                    size_t len = strlen(val) + 1;
-                    if (*oldlenp >= len) {
-                        strcpy((char *)oldp, val);
-                        *oldlenp = len;
-                        return 0;
-                    }
+    if (namelen >= 2 && name[0] == CTL_HW) {
+        if (name[1] == HW_MEMSIZE && gSpoofHardwareEnabled) {
+            if (oldp && oldlenp) {
+                if (*oldlenp >= sizeof(uint64_t)) {
+                    *(uint64_t *)oldp = 4294967296ULL;
+                    *oldlenp = sizeof(uint64_t);
+                    return 0;
                 }
             }
         }
-    } @catch(NSException *e) {
-        _cflog(@"[CRASH][sysctl OID]: %@", e.reason);
+        if (name[1] == HW_NCPU && gSpoofHardwareEnabled) {
+            if (oldp && oldlenp) {
+                if (*oldlenp >= sizeof(int)) {
+                    *(int *)oldp = 6;
+                    *oldlenp = sizeof(int);
+                    return 0;
+                }
+            }
+        }
     }
     return orig_sysctl_ptr ? orig_sysctl_ptr(name, namelen, oldp, oldlenp, newp, newlen) : -1;
 }
@@ -1964,27 +1903,17 @@ int _sys_uname_handler(struct utsname *name) {
     _set_sc_depth(_get_sc_depth() + 1);
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
 
-    // FIXED: Call original via saved pointer
     int ret = orig_uname_ptr ? orig_uname_ptr(name) : -1;
     if (ret != 0) return ret;
     
-    @try {
-        if (gSpoofDeviceEnabled) {
-            NSString *fakeModel = [settings valueForKey:@"deviceModel"];
-            if (fakeModel) {
-                strncpy(name->machine, [fakeModel UTF8String], sizeof(name->machine) - 1);
-                name->machine[sizeof(name->machine) - 1] = '\0';
-            }
-        }
-        if (gSpoofDarwinEnabled) {
-            NSString *fakeDarwin = [settings valueForKey:@"darwinVersion"];
-            if (fakeDarwin) {
-                strncpy(name->release, [fakeDarwin UTF8String], sizeof(name->release) - 1);
-                name->release[sizeof(name->release) - 1] = '\0';
-            }
-        }
-    } @catch(NSException *e) {
-        _cflog(@"[CRASH][uname]: %@", e.reason);
+    if (gSpoofDeviceEnabled) {
+        strncpy(name->machine, gSpoofDeviceModel, sizeof(name->machine) - 1);
+        name->machine[sizeof(name->machine) - 1] = '\0';
+    }
+    if (gSpoofDarwinEnabled) {
+        strncpy(name->release, gSpoofDarwinVersion, sizeof(name->release) - 1);
+        name->release[sizeof(name->release) - 1] = '\0';
+        strncpy(name->version, "Darwin Kernel Version ", sizeof(name->version) - 1);
     }
     return ret;
 }
@@ -1994,42 +1923,32 @@ int _net_if_handler(struct ifaddrs **ifap) {
     _set_sc_depth(_get_sc_depth() + 1);
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0;
 
-    // FIXED: Call original via saved pointer
     int ret = orig_getifaddrs_ptr ? orig_getifaddrs_ptr(ifap) : -1;
     if (ret != 0 || !ifap || !*ifap) return ret;
     
-    _UIDeviceConfig *settings = [_UIDeviceConfig shared];
-    if ([settings isEnabled:@"wifiIP"]) {
-        @try {
-            struct ifaddrs *ifa = *ifap;
-            while (ifa) {
-                if (ifa->ifa_addr && strcmp(ifa->ifa_name, "en0") == 0) {
-                    // Fake IPv4 address
-                    if (ifa->ifa_addr->sa_family == AF_INET) {
-                        struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
-                        const char* fakeIP = [[settings valueForKey:@"wifiIP"] UTF8String];
-                        inet_pton(AF_INET, fakeIP, &(addr->sin_addr));
-                    }
-                    // Fake MAC address (AF_LINK) â€” critical for device tracking
-                    if (ifa->ifa_addr->sa_family == AF_LINK) {
-                        struct sockaddr_dl *sdl = (struct sockaddr_dl *)ifa->ifa_addr;
-                        if (sdl->sdl_alen == 6) {
-                            // Generate stable fake MAC from profile seed
-                            NSString *seed = [settings valueForKey:@"identifierForVendor"] ?: @"default";
-                            const char *seedC = [seed UTF8String];
-                            size_t seedLen = strlen(seedC);
-                            uint8_t *mac = (uint8_t *)LLADDR(sdl);
-                            for (int i = 0; i < 6; i++) {
-                                mac[i] = (uint8_t)((seedC[i % seedLen] * 31 + i * 17 + 0xAB) & 0xFF);
-                            }
-                            mac[0] = (mac[0] & 0xFE) | 0x02; // Local, unicast
+    if (gSpoofNetworkEnabled) {
+        struct ifaddrs *ifa = *ifap;
+        while (ifa) {
+            if (ifa->ifa_addr && strcmp(ifa->ifa_name, "en0") == 0) {
+                if (ifa->ifa_addr->sa_family == AF_INET) {
+                    struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
+                    inet_pton(AF_INET, gSpoofWiFiIP, &(addr->sin_addr));
+                }
+                if (ifa->ifa_addr->sa_family == AF_LINK) {
+                    struct sockaddr_dl *sdl = (struct sockaddr_dl *)ifa->ifa_addr;
+                    if (sdl->sdl_alen == 6) {
+                        const char *seedC = gSpoofIdentifierForVendor;
+                        size_t seedLen = strlen(seedC);
+                        if (seedLen == 0) { seedC = "default"; seedLen = 7; }
+                        uint8_t *mac = (uint8_t *)LLADDR(sdl);
+                        for (int i = 0; i < 6; i++) {
+                            mac[i] = (uint8_t)((seedC[i % seedLen] * 31 + i * 17 + 0xAB) & 0xFF);
                         }
+                        mac[0] = (mac[0] & 0xFE) | 0x02; // Local, unicast
                     }
                 }
-                ifa = ifa->ifa_next;
             }
-        } @catch(NSException *e) {
-            _cflog(@"[CRASH][getifaddrs]: %@", e.reason);
+            ifa = ifa->ifa_next;
         }
     }
     return ret;
