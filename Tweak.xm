@@ -61,8 +61,10 @@ static char gSpoofDarwinVersion[64] = "21.6.0";
 static char gSpoofBootTime[64] = "1672531200";
 static char gSpoofWiFiIP[64] = "192.168.1.100";
 static char gSpoofIdentifierForVendor[64] = "00000000-0000-0000-0000-000000000000";
+static uint64_t gSpoofTotalDisk = 256000000000ULL;
+static uint64_t gSpoofFreeDisk = 128000000000ULL;
 
-static void _updateCSpoofCaches(_UIDeviceConfig *settings) {
+static void _updateCSpoofCaches(id settings) {
     if (!settings) return;
     gJailbreakHidingEnabled = [settings isEnabled:@"jailbreak"];
     gSpoofHardwareEnabled = [settings isEnabled:@"hardwareInfo"];
@@ -1851,21 +1853,15 @@ int _statfs_handler(const char *path, struct statfs *buf) {
 
     int ret = orig_statfs_ptr ? orig_statfs_ptr(path, buf) : -1;
     if (ret != 0) return ret;
-    @try {
-        if (gSpoofHardwareEnabled) {
-            NSNumber *totalDisk = [settings valueForKey:@"totalDiskSpace"];
-            NSNumber *freeDisk = [settings valueForKey:@"freeDiskSpace"];
-            if (totalDisk && freeDisk && buf) {
-                unsigned long long total = [totalDisk unsignedLongLongValue];
-                unsigned long long freeSpace = [freeDisk unsignedLongLongValue];
-                if (buf->f_bsize > 0) {
-                    buf->f_blocks = (uint64_t)(total / buf->f_bsize);
-                    buf->f_bfree = (uint64_t)(freeSpace / buf->f_bsize);
-                    buf->f_bavail = buf->f_bfree;
-                }
-            }
+    
+    if (gSpoofHardwareEnabled && buf) {
+        if (buf->f_bsize > 0) {
+            buf->f_blocks = (uint64_t)(gSpoofTotalDisk / buf->f_bsize);
+            buf->f_bfree = (uint64_t)(gSpoofFreeDisk / buf->f_bsize);
+            buf->f_bavail = buf->f_bfree;
         }
-    } @catch(NSException *e) {}
+    }
+    
     return ret;
 }
 
