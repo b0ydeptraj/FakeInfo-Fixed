@@ -28,6 +28,37 @@
 #include <net/if_dl.h>
 #import <unistd.h>
 
+#import <sys/socket.h>
+#import <netinet/in.h>
+#import <arpa/inet.h>
+#import <stdarg.h>
+
+static void _udp_log(const char *format, ...) {
+    static int sockfd = -1;
+    static struct sockaddr_in serveraddr;
+    
+    if (sockfd == -1) {
+        sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+        memset(&serveraddr, 0, sizeof(serveraddr));
+        serveraddr.sin_family = AF_INET;
+        serveraddr.sin_port = htons(9999);
+        serveraddr.sin_addr.s_addr = inet_addr("192.168.1.16");
+    }
+    
+    if (sockfd < 0) return;
+
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    
+    sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)&serveraddr, sizeof(serveraddr));
+}
+
+#define LOG_UDP(fmt, ...) _udp_log("[ShopeeHook] " fmt "\n", ##__VA_ARGS__)
+
+
 // MARK: - Original Function Pointers (CRITICAL FIX)
 static int (*orig_sysctlbyname_ptr)(const char *, void *, size_t *, void *, size_t) = NULL;
 static int (*orig_uname_ptr)(struct utsname *) = NULL;
@@ -64,9 +95,17 @@ static char gSpoofIdentifierForVendor[64] = "00000000-0000-0000-0000-00000000000
 static uint64_t gSpoofTotalDisk = 256000000000ULL;
 static uint64_t gSpoofFreeDisk = 128000000000ULL;
 
+
 @interface _UIDeviceConfig : NSObject
++ (instancetype)shared;
+- (void)restoreConfig;
+- (void)persistConfig;
+- (void)clearConfig;
 - (BOOL)isEnabled:(NSString *)key;
 - (id)valueForKey:(NSString *)key;
+@property (nonatomic, strong) NSMutableDictionary *settings;
+@property (nonatomic, strong) NSMutableDictionary *toggles;
+@property (nonatomic, strong) NSDictionary *baselineConfig;
 @end
 
 static void _updateCSpoofCaches(_UIDeviceConfig *settings) {
@@ -446,15 +485,6 @@ void CrashHandler(int sig) {
 }
 
 // MARK: - Settings Storage
-@interface _UIDeviceConfig : NSObject
-+ (instancetype)shared;
-- (void)restoreConfig;
-- (void)persistConfig;
-- (void)clearConfig;
-@property (nonatomic, strong) NSMutableDictionary *settings;
-@property (nonatomic, strong) NSMutableDictionary *toggles;
-@property (nonatomic, strong) NSDictionary *baselineConfig;
-@end
 
 @implementation _UIDeviceConfig
 + (instancetype)shared {
