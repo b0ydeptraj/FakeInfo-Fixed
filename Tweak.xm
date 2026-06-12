@@ -255,7 +255,7 @@ static BOOL hasShownSettings = NO;
 static NSMutableDictionary *sessionCache = nil;
 static BOOL sessionCacheInitialized = NO;
 static NSObject *stableIdLock = nil;
-static BOOL gDebugLoggingEnabled = NO;
+static BOOL gDebugLoggingEnabled = YES;
 
 // GPS base location for realistic drift
 static double gpsBaseLatitude = 0.0;
