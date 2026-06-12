@@ -43,7 +43,7 @@ static void _udp_log(const char *format, ...) {
         setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
         memset(&serveraddr, 0, sizeof(serveraddr));
         serveraddr.sin_family = AF_INET;
-        serveraddr.sin_port = htons(9999);
+        serveraddr.sin_port = htons(23456);
         serveraddr.sin_addr.s_addr = inet_addr("255.255.255.255");
     }
     
