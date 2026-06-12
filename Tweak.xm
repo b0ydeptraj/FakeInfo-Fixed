@@ -312,7 +312,7 @@ static inline void _sc_hook_leave_cleanup(int *unused) {
 
 
 // Check if we're already inside one of our hooks on this thread
-#define SC_IS_REENTRANT (_was_reentrant)
+#define SC_IS_REENTRANT (_is_infinite_loop)
 
 // Increment depth at hook entry, setup cleanup when leaving scope
 // DEPRECATED: Use SC_PREVENT_LOOP instead!
@@ -328,14 +328,12 @@ static inline void _sc_hook_leave_cleanup(int *unused) {
 #define SC_HOOK_RETURN(val) return (val)
 
 #define SC_PREVENT_LOOP(orig_expr) \
-    BOOL _was_reentrant = (_get_sc_depth() > 0); \
-    if (_get_sc_depth() > 5) { return orig_expr; } \
+    BOOL _is_infinite_loop = (_get_sc_depth() > 5); \
     _set_sc_depth(_get_sc_depth() + 1); \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
 #define SC_PREVENT_LOOP_VOID_MACRO(orig_expr) \
-    BOOL _was_reentrant = (_get_sc_depth() > 0); \
-    if (_get_sc_depth() > 5) { orig_expr; return; } \
+    BOOL _is_infinite_loop = (_get_sc_depth() > 5); \
     _set_sc_depth(_get_sc_depth() + 1); \
     __attribute__((cleanup(_sc_hook_leave_cleanup))) int __sc_guard = 0
 
@@ -2201,7 +2199,18 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook NSBundle
 - (NSString *)bundleIdentifier {
     SC_PREVENT_LOOP(%orig);
-    if (SC_IS_REENTRANT) return nil; // Auto-fallback
+    if (SC_IS_REENTRANT) {
+        if (self == [NSBundle mainBundle]) {
+            CFBundleRef mainBundle = CFBundleGetMainBundle();
+            if (mainBundle) {
+                CFStringRef identifier = CFBundleGetIdentifier(mainBundle);
+                if (identifier) {
+                    return (__bridge NSString *)identifier;
+                }
+            }
+        }
+        return nil;
+    }
     @try {
         if (self == [NSBundle mainBundle]) {
             _UIDeviceConfig *settings = [_UIDeviceConfig shared];
@@ -2213,7 +2222,6 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSDictionary *)infoDictionary {
     SC_PREVENT_LOOP(%orig);
-    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     // CRITICAL: When reentrant, we MUST bypass the ObjC runtime entirely!
     // The target app's anti-cheat framework may load before our tweak and swizzle NSBundle.
     // If we call %orig, or even capture their IMP in our +load, we end up calling THEIR hook.
