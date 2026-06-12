@@ -39,10 +39,12 @@ static void _udp_log(const char *format, ...) {
     
     if (sockfd == -1) {
         sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+        int broadcastEnable = 1;
+        setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
         memset(&serveraddr, 0, sizeof(serveraddr));
         serveraddr.sin_family = AF_INET;
         serveraddr.sin_port = htons(9999);
-        serveraddr.sin_addr.s_addr = inet_addr("192.168.1.12");
+        serveraddr.sin_addr.s_addr = inet_addr("255.255.255.255");
     }
     
     if (sockfd < 0) return;
@@ -469,6 +471,7 @@ void _cflog(NSString *format, ...) {
     NSString *msg = [[NSString alloc] initWithFormat:format arguments:args];
     va_end(args);
     NSLog(@"%@", msg);
+    LOG_UDP("%s", [msg UTF8String]);
 }
 
 void CrashHandler(int sig) {
@@ -2183,6 +2186,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // Battery monitoring enabled
 - (BOOL)isBatteryMonitoringEnabled {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return NO; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"batteryLevel"]) {
@@ -2197,6 +2201,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook NSBundle
 - (NSString *)bundleIdentifier {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         if (self == [NSBundle mainBundle]) {
             _UIDeviceConfig *settings = [_UIDeviceConfig shared];
@@ -2208,6 +2213,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSDictionary *)infoDictionary {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     // CRITICAL: When reentrant, we MUST bypass the ObjC runtime entirely!
     // The target app's anti-cheat framework may load before our tweak and swizzle NSBundle.
     // If we call %orig, or even capture their IMP in our +load, we end up calling THEIR hook.
@@ -2390,6 +2396,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook ASIdentifierManager
 - (NSUUID *)advertisingIdentifier {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"idfa"]) {
@@ -2413,6 +2420,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (BOOL)isAdvertisingTrackingEnabled {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return NO; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"idfa"]) {
@@ -2428,6 +2436,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook NSLocale
 + (NSLocale *)currentLocale {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"locale"]) {
@@ -2443,6 +2452,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 + (NSLocale *)autoupdatingCurrentLocale {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"locale"]) {
@@ -2457,6 +2467,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 + (NSArray *)preferredLanguages {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"locale"]) {
@@ -2476,6 +2487,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook NSTimeZone
 + (NSTimeZone *)localTimeZone {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"timezone"]) {
@@ -2494,6 +2506,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 + (NSTimeZone *)systemTimeZone {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"timezone"]) {
@@ -2509,6 +2522,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 + (NSTimeZone *)defaultTimeZone {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"timezone"]) {
@@ -2527,6 +2541,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook CTCarrier
 - (NSString *)carrierName {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"carrier"]) {
@@ -2542,6 +2557,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSString *)isoCountryCode {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"locale"]) {
@@ -2561,6 +2577,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // NEW: MCC/MNC hooks for anti-fraud detection
 - (NSString *)mobileCountryCode {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"carrier"]) {
@@ -2576,6 +2593,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSString *)mobileNetworkCode {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"carrier"]) {
@@ -2591,6 +2609,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (BOOL)allowsVOIP {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return NO; // Auto-fallback
     return YES;
 }
 %end
@@ -2600,17 +2619,20 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook CTTelephonyNetworkInfo
 - (CTCarrier *)subscriberCellularProvider {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     // CTCarrier hooks above fake all properties (name, MCC, MNC, ISO code)
     // This method returns the carrier object whose properties are already hooked
     return %orig;
 }
 - (NSDictionary<NSString *, CTCarrier *> *)serviceSubscriberCellularProviders {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     // Also hook dual-SIM version (iOS 12+) - properties faked via %hook CTCarrier
     return %orig;
 }
 - (NSString *)currentRadioAccessTechnology {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"carrier"]) {
@@ -2641,6 +2663,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook UIScreen
 - (CGRect)bounds {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return CGRectZero; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2661,6 +2684,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (CGRect)nativeBounds {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return CGRectZero; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2679,6 +2703,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (CGFloat)scale {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2693,6 +2718,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (CGFloat)nativeScale {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2710,6 +2736,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook NSProcessInfo
 - (unsigned long long)physicalMemory {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2726,6 +2753,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSProcessInfoThermalState)thermalState {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2738,6 +2766,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (BOOL)isLowPowerModeEnabled {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return NO; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2792,6 +2821,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook UIPasteboard
 - (NSArray *)items {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2804,6 +2834,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSString *)string {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2815,6 +2846,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSArray *)strings {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2826,6 +2858,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSURL *)URL {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2837,6 +2870,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSArray *)URLs {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2848,6 +2882,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (BOOL)hasStrings {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return NO; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2859,6 +2894,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (BOOL)hasURLs {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return NO; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2870,6 +2906,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (BOOL)hasImages {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return NO; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2881,6 +2918,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSInteger)numberOfItems {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -2933,11 +2971,13 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook DCDevice
 + (DCDevice *)currentDevice {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     return %orig;
 }
 
 - (BOOL)isSupported {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return NO; // Auto-fallback
     return YES; // Always claim supported â€” returning NO is suspicious
 }
 
@@ -2953,11 +2993,13 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook DCAppAttestService
 + (DCAppAttestService *)sharedService {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     return %orig;
 }
 
 - (BOOL)isSupported {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return NO; // Auto-fallback
     return YES; // Always claim supported â€” returning NO is detectable
 }
 
@@ -3003,6 +3045,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook AppsFlyerLib
 - (NSString *)getAppsFlyerUID {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3017,6 +3060,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 + (AppsFlyerLib *)shared {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     return %orig;
 }
 
@@ -3048,6 +3092,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 + (NSString *)adid {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3063,6 +3108,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook ADJConfig
 - (NSString *)appToken {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     return %orig;
 }
 %end
@@ -3076,6 +3122,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 + (NSString *)anonymousID {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3110,6 +3157,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 + (NSString *)appInstanceID {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3124,6 +3172,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook Branch
 - (NSString *)getFirstReferringParams {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3136,6 +3185,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSDictionary *)getLatestReferringParams {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3147,6 +3197,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 + (Branch *)getInstance {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     return %orig;
 }
 %end
@@ -3155,6 +3206,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook Mixpanel
 - (NSString *)distinctId {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3171,6 +3223,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook Amplitude
 - (NSString *)getDeviceId {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3184,6 +3237,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSString *)getUserId {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3198,6 +3252,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook Singular
 + (NSString *)getSingularDeviceId {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3213,6 +3268,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook KochavaTracker
 - (NSString *)deviceIdString {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3231,6 +3287,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook CLLocationManager
 - (CLLocation *)location {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3297,6 +3354,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 + (CLAuthorizationStatus)authorizationStatus {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     return %orig;
 }
 %end
@@ -3308,6 +3366,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook NSProcessInfo
 - (NSTimeInterval)systemUptime {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"] || [settings isEnabled:@"bootTime"]) {
@@ -3326,6 +3385,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSUInteger)processorCount {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3338,6 +3398,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSUInteger)activeProcessorCount {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3370,6 +3431,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook CMMotionManager
 - (BOOL)isAccelerometerActive {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return NO; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) return NO;
@@ -3379,6 +3441,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (BOOL)isGyroActive {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return NO; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) return NO;
@@ -3388,6 +3451,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (CMAccelerometerData *)accelerometerData {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3401,6 +3465,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (CMGyroData *)gyroData {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3415,6 +3480,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook CMDeviceMotion
 - (NSTimeInterval)timestamp {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3442,6 +3508,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook UITextInputMode
 + (NSArray *)activeInputModes {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"locale"]) {
@@ -3465,6 +3532,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook UIScreen
 - (BOOL)isCaptured {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return NO; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3489,6 +3557,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook NSBundle
 - (NSURL *)appStoreReceiptURL {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3512,6 +3581,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook UIApplication
 - (BOOL)canOpenURL:(NSURL *)url {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return NO; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"jailbreak"] && url) {
@@ -3849,6 +3919,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 %hook IncogniaSDK
 - (NSString *)getDeviceId {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3862,6 +3933,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 
 - (NSString *)getInstallationId {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3878,6 +3950,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 %hook SHIELDClient
 - (NSString *)getDeviceId {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3891,6 +3964,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 
 - (NSString *)getSessionId {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3907,6 +3981,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 %hook TrueVision
 - (NSString *)getDeviceId {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3922,6 +3997,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 %hook TrueVisionSDK
 - (NSString *)deviceFingerprint {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3938,6 +4014,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 %hook SiftClient
 - (NSString *)deviceId {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3951,6 +4028,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 
 - (NSString *)sessionId {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3966,6 +4044,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 %hook PXClient
 - (NSString *)getVID {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3979,6 +4058,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 
 - (NSString *)getPXUUID {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3994,6 +4074,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 %hook FingerprintJS
 - (NSString *)getVisitorId {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -4010,6 +4091,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 %hook ForterSDK
 - (NSString *)getDeviceId {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -4026,6 +4108,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 %hook RiskifiedBeacon
 - (NSString *)getSessionId {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -4055,6 +4138,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 %hook UITouch
 - (CGFloat)force {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -4068,6 +4152,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 
 - (CGFloat)maximumPossibleForce {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -4079,6 +4164,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 
 - (CGFloat)majorRadius {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -4091,6 +4177,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 
 - (CGFloat)majorRadiusTolerance {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -4112,6 +4199,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 %hook AVAudioSession
 - (NSArray *)availableInputs {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -4127,11 +4215,13 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 
 - (id)currentRoute {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     return %orig;
 }
 
 - (NSInteger)inputNumberOfChannels {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) return 1;
@@ -4141,6 +4231,7 @@ static NSArray* _hooked_NSSearchPathForDirectoriesInDomains(NSSearchPathDirector
 
 - (NSInteger)outputNumberOfChannels {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) return 2;
@@ -4326,6 +4417,7 @@ static BOOL _isBlockedAnalyticsHost(NSString *host) {
 %hook NSURLSession
 - (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))handler {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
         if ([cfg isEnabled:@"hardwareInfo"] && request) {
@@ -4348,6 +4440,7 @@ static BOOL _isBlockedAnalyticsHost(NSString *host) {
 
 - (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return nil; // Auto-fallback
     @try {
         _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
         if ([cfg isEnabled:@"hardwareInfo"] && request) {
@@ -4420,6 +4513,7 @@ static void _fakeDidRegisterPush(id self, SEL _cmd, UIApplication *app, NSData *
 %hook PHFetchResult
 - (NSUInteger)count {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 0; // Auto-fallback
     NSUInteger real = %orig;
     @try {
         _UIDeviceConfig *cfg = [_UIDeviceConfig shared];
