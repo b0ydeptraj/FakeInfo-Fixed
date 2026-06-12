@@ -20,6 +20,8 @@ Route to `developer` only when the active story or tech-spec is ready for implem
 - Prefer small, verifiable slices over broad task bundles.
 - Every story or quick spec should name what will prove it is done.
 - If the work spans unrelated subsystems, split the plan before implementation starts.
+- Include dependency metadata (`depends_on`, parallel-safe yes/no, first verification command) so execution can run in controlled waves.
+- If slicing yields zero executable stories, block and escalate instead of declaring planning complete.
 
 ## Role
 - planning-hub
@@ -39,12 +41,26 @@ Route to `developer` only when the active story or tech-spec is ready for implem
 - Call only the roles needed to close the current planning gap.
 - Use scout-hub first if the current codebase context is too weak to plan safely.
 - Route to review-hub if artifacts disagree with one another.
-- Use `.ai-kit/docs/planning-discipline.md` to keep plans artifact-first, bite-sized, and verification-aware.
+- Use `.relay-kit/docs/planning-discipline.md` to keep plans artifact-first, bite-sized, and verification-aware.
+- Lock key UX, API, and behavior assumptions before story slicing so implementation does not drift.
+- Open `references/plan-hub-operator-contract.md` when scope, evidence, or operator safety is unclear.
+- Use `examples/plan-hub-good-output.md` and `examples/plan-hub-bad-output.md` to calibrate output quality.
+- Use `evals/plan-hub-cases.json` as the minimum scenario set for behavior regression checks.
+- Use `competencies/plan-hub-competencies.json` to check covered competencies, failure traps, and unknown-domain policy.
 
 ## Likely next step
 - analyst
+- research
+- problem-solving
+- sequential-thinking
+- impact-radar
+- mermaid-diagrams
 - pm
 - architect
+- go-service-engineering
+- next-product-frontend
+- mmo-ecommerce-multichannel
+- mmo-crypto-wallet-farming
 - scrum-master
 - developer
 - review-hub

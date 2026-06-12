@@ -29,15 +29,19 @@ Cover these sections:
 
 ## Inputs
 - user request
-- .ai-kit/contracts/project-context.md
-- .ai-kit/state/workflow-state.md
+- .relay-kit/contracts/project-context.md
+- .relay-kit/state/workflow-state.md
 
 ## Outputs
-- .ai-kit/contracts/product-brief.md
+- .relay-kit/contracts/product-brief.md
 
 ## Reference skills and rules
 - Lean on research-expert, problem-solving, and sequential-thinking when the scope is fuzzy.
 - Keep the brief short enough that downstream roles can actually use it.
+- Open `references/analyst-operator-contract.md` when scope, evidence, or operator safety is unclear.
+- Use `examples/analyst-good-output.md` and `examples/analyst-bad-output.md` to calibrate output quality.
+- Use `evals/analyst-cases.json` as the minimum scenario set for behavior regression checks.
+- Use `competencies/analyst-competencies.json` to check covered competencies, failure traps, and unknown-domain policy.
 
 ## Likely next step
 - pm

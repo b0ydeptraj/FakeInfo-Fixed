@@ -46,6 +46,10 @@ Sharpen hierarchy, flow, and design taste without stealing ownership from produc
 - Use this skill to block AI-slop layouts, not merely to polish them.
 - Prefer reference-driven direction, explicit hierarchy, and deliberate grid structure over generic SaaS template patterns.
 - Return notes to the owning hub rather than taking over the project.
+- Open `references/ux-structure-operator-contract.md` when scope, evidence, or operator safety is unclear.
+- Use `examples/ux-structure-good-output.md` and `examples/ux-structure-bad-output.md` to calibrate output quality.
+- Use `evals/ux-structure-cases.json` as the minimum scenario set for behavior regression checks.
+- Use `competencies/ux-structure-competencies.json` to check covered competencies, failure traps, and unknown-domain policy.
 
 ## Likely next step
 - brainstorm-hub

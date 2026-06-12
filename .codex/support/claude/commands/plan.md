@@ -13,7 +13,7 @@ $ARGUMENTS
 - Identify constraints, non-goals, and risky assumptions.
 - Inspect relevant files, modules, configs, and tests before proposing edits.
 - Prefer existing patterns and abstractions already present in the codebase.
-- For complex work, write or update `.ai-kit/state/plan.md`.
+- For complex work, write or update `.relay-kit/state/plan.md`.
 
 ## Use These Skills As Needed
 - `scout` for codebase mapping and impact analysis.

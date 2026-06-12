@@ -1,38 +1,55 @@
 ---
 name: cook
-description: orchestrate complex coding work across planning, codebase scouting, debugging, implementation, validation, and review. use when the user wants to implement a feature, execute a multi-step change, or run an end-to-end coding workflow instead of manually invoking separate specialist skills.
+description: Use when one active request already has routing and state, and needs the next solid handoff. Drive that request forward with the right hub or specialist.
 ---
 
-# Cook
+# Mission
+Run the day-to-day loop for one request without letting it skip gates or get stuck in vague next steps.
 
-## Overview
-Run the default end-to-end coding workflow. Act as the primary orchestrator for non-trivial software tasks.
+## Mandatory loop
+1. Read workflow-state and identify the lane's current objective.
+2. Choose exactly one hub that should move the work forward now.
+3. Name the artifact that hub must create, update, or validate.
+4. After the hub finishes, update workflow-state with what changed and which hub or specialist comes next.
+5. Stop as soon as the next handoff is explicit.
 
-## Workflow
-1. Determine whether the task is feature work, bug fixing, refactor, or review-driven follow-up.
-2. Invoke `plan` for multi-step work or ambiguous implementation requests.
-3. Invoke `scout` to map the codebase, affected files, dependencies, and likely impact surface.
-4. If the task is a bug or failing behavior, invoke `debug` before editing code.
-5. Invoke `fix` to make the implementation changes through the best-matched domain expert.
-6. Invoke `validate` to run the narrowest useful verification for the changed surface.
-7. Invoke `review` to check regressions, edge cases, and code quality before finishing.
+## Safety rules
+- Never jump straight from vague intent to implementation.
+- When evidence is weak, prefer scout-hub, debug-hub, or test-hub over optimistic implementation.
+- When scope shifts, send the lane back through workflow-router.
 
-## Routing Rules
-- Use `plan` whenever the change touches multiple files, interfaces, flows, or systems.
-- Use `debug` before `fix` when the root cause is unclear.
-- Use `brainstorm` before `plan` when multiple viable designs or tradeoffs exist.
-- Use `validate` and `review` before considering the task done.
+## Role
+- lane-conductor
 
-## Handoff Contract
-Whenever delegating, pass:
-- Objective
-- Current constraints
-- Relevant files or suspected areas
-- Evidence already collected
-- Desired output for the next skill
+## Layer
+- layer-1-orchestrators
 
-## Completion Rules
-Do not stop after planning or editing alone. The default completion path is:
-`plan -> scout -> debug/fix -> validate -> review`
+## Inputs
+- .relay-kit/state/workflow-state.md
+- current request or lane objective
+- available artifacts
 
-Skip only the steps that are clearly unnecessary for a very small task.
+## Outputs
+- updated workflow-state
+- a named next hub or specialist
+- refreshed artifacts produced by the chosen lane
+
+## Reference skills and rules
+- Cook does not replace hubs; it chooses and sequences them.
+- Keep each pass small: one hub, one artifact decision, one clear next handoff.
+- If completion is claimed, force test-hub or review-hub before accepting it.
+- If the lane is pausing or switching owners, trigger context-continuity checkpoint before handoff.
+- Open `references/cook-operator-contract.md` when scope, evidence, or operator safety is unclear.
+- Use `examples/cook-good-output.md` and `examples/cook-bad-output.md` to calibrate output quality.
+- Use `evals/cook-cases.json` as the minimum scenario set for behavior regression checks.
+- Use `competencies/cook-competencies.json` to check covered competencies, failure traps, and unknown-domain policy.
+
+## Likely next step
+- brainstorm-hub
+- scout-hub
+- plan-hub
+- debug-hub
+- fix-hub
+- test-hub
+- review-hub
+- context-continuity

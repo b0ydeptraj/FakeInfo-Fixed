@@ -36,6 +36,10 @@ Make complex flow or structure easier to reason about with a compact diagram.
 ## Reference skills and rules
 - Prefer diagrams that clarify ownership, flow, or sequencing.
 - Diagrams should serve the artifact, not replace it.
+- Open `references/mermaid-diagrams-operator-contract.md` when scope, evidence, or operator safety is unclear.
+- Use `examples/mermaid-diagrams-good-output.md` and `examples/mermaid-diagrams-bad-output.md` to calibrate output quality.
+- Use `evals/mermaid-diagrams-cases.json` as the minimum scenario set for behavior regression checks.
+- Use `competencies/mermaid-diagrams-competencies.json` to check covered competencies, failure traps, and unknown-domain policy.
 
 ## Likely next step
 - plan-hub

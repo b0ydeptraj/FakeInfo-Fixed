@@ -25,7 +25,7 @@ Run the day-to-day loop for one request without letting it skip gates or get stu
 - layer-1-orchestrators
 
 ## Inputs
-- .ai-kit/state/workflow-state.md
+- .relay-kit/state/workflow-state.md
 - current request or lane objective
 - available artifacts
 
@@ -38,6 +38,11 @@ Run the day-to-day loop for one request without letting it skip gates or get stu
 - Cook does not replace hubs; it chooses and sequences them.
 - Keep each pass small: one hub, one artifact decision, one clear next handoff.
 - If completion is claimed, force test-hub or review-hub before accepting it.
+- If the lane is pausing or switching owners, trigger context-continuity checkpoint before handoff.
+- Open `references/cook-operator-contract.md` when scope, evidence, or operator safety is unclear.
+- Use `examples/cook-good-output.md` and `examples/cook-bad-output.md` to calibrate output quality.
+- Use `evals/cook-cases.json` as the minimum scenario set for behavior regression checks.
+- Use `competencies/cook-competencies.json` to check covered competencies, failure traps, and unknown-domain policy.
 
 ## Likely next step
 - brainstorm-hub
@@ -47,3 +52,4 @@ Run the day-to-day loop for one request without letting it skip gates or get stu
 - fix-hub
 - test-hub
 - review-hub
+- context-continuity

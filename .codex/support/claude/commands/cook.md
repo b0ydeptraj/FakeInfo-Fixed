@@ -29,9 +29,9 @@ Act as the top-level orchestrator for implementation work. Coordinate the workfl
 
 ## State
 For complex work, maintain:
-- `.ai-kit/state/plan.md`
-- `.ai-kit/state/routes.json`
-- `.ai-kit/state/findings.md`
+- `.relay-kit/state/plan.md`
+- `.relay-kit/state/routes.json`
+- `.relay-kit/state/findings.md`
 
 ## Handoff Contract
 When invoking another hub or specialist, include:

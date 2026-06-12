@@ -2753,7 +2753,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSProcessInfoThermalState)thermalState {
     SC_PREVENT_LOOP(%orig);
-    if (SC_IS_REENTRANT) return 0; // Auto-fallback
+    if (SC_IS_REENTRANT) return (NSProcessInfoThermalState)0; // Auto-fallback
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"hardwareInfo"]) {
@@ -3354,7 +3354,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 + (CLAuthorizationStatus)authorizationStatus {
     SC_PREVENT_LOOP(%orig);
-    if (SC_IS_REENTRANT) return 0; // Auto-fallback
+    if (SC_IS_REENTRANT) return (CLAuthorizationStatus)0; // Auto-fallback
     return %orig;
 }
 %end

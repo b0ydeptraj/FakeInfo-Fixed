@@ -1,6 +1,7 @@
 ---
 name: media-tooling
 description: Use when screenshots, assets, or content files need transformation or evidence extraction for the current lane. Media handling utility.
+allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash"]
 ---
 
 # Mission
@@ -36,6 +37,10 @@ Handle media-specific steps that support the current lane without creating a par
 ## Reference skills and rules
 - Useful for evidence packaging and asset-heavy workflows.
 - Should stay stateless and task-scoped.
+- Open `references/media-tooling-operator-contract.md` when scope, evidence, or operator safety is unclear.
+- Use `examples/media-tooling-good-output.md` and `examples/media-tooling-bad-output.md` to calibrate output quality.
+- Use `evals/media-tooling-cases.json` as the minimum scenario set for behavior regression checks.
+- Use `competencies/media-tooling-competencies.json` to check covered competencies, failure traps, and unknown-domain policy.
 
 ## Likely next step
 - test-hub

@@ -40,6 +40,10 @@ Find the smallest set of authoritative documentation fragments needed to unblock
 ## Reference skills and rules
 - Return exact doc pointers, not vague summaries.
 - Prefer repo-local docs and code comments before broader sources when the task is codebase-specific.
+- Open `references/doc-pointers-operator-contract.md` when scope, evidence, or operator safety is unclear.
+- Use `examples/doc-pointers-good-output.md` and `examples/doc-pointers-bad-output.md` to calibrate output quality.
+- Use `evals/doc-pointers-cases.json` as the minimum scenario set for behavior regression checks.
+- Use `competencies/doc-pointers-competencies.json` to check covered competencies, failure traps, and unknown-domain policy.
 
 ## Likely next step
 - scout-hub

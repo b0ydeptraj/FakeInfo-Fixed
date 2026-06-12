@@ -43,11 +43,25 @@ End with one explicit verdict:
 ## Reference skills and rules
 - Review-hub is the mesh junction: it may send work back to plan, debug, fix, or test.
 - Do not hide disagreement between artifacts; name it and route accordingly.
-- Use `.ai-kit/docs/review-loop.md` and `.ai-kit/docs/branch-completion.md` for review handling and end-of-branch discipline.
+- Use `.relay-kit/docs/review-loop.md` and `.relay-kit/docs/branch-completion.md` for review handling and end-of-branch discipline.
+- If work crosses sessions, require context-continuity artifacts before accepting final completion claims.
+- Open `references/review-hub-operator-contract.md` when scope, evidence, or operator safety is unclear.
+- Use `examples/review-hub-good-output.md` and `examples/review-hub-bad-output.md` to calibrate output quality.
+- Use `evals/review-hub-cases.json` as the minimum scenario set for behavior regression checks.
+- Use `competencies/review-hub-competencies.json` to check covered competencies, failure traps, and unknown-domain policy.
 
 ## Likely next step
+- impact-radar
+- runtime-doctor
+- migration-guard
+- skill-evolution
+- signal-calibration
+- doc-pointers
+- multimodal-evidence
+- media-tooling
 - plan-hub
 - debug-hub
 - fix-hub
 - test-hub
+- context-continuity
 - workflow-router
