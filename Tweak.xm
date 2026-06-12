@@ -2100,6 +2100,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 %hook UIDevice
 - (NSString *)systemVersion {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return @"17.0"; // Break NSInvocation loop
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"systemVersion"]) return [settings valueForKey:@"systemVersion"];
@@ -2109,6 +2110,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSString *)model {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return @"iPhone";
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"deviceModel"]) return [settings valueForKey:@"deviceModel"];
@@ -2118,6 +2120,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSString *)name {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return @"iPhone";
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"deviceName"]) return [settings valueForKey:@"deviceName"];
@@ -2127,6 +2130,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 
 - (NSUUID *)identifierForVendor {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return [[NSUUID alloc] initWithUUIDString:@"00000000-0000-0000-0000-000000000000"];
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"identifierForVendor"]) {
@@ -2147,6 +2151,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // Battery level hook (fake battery percentage)
 - (float)batteryLevel {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return 1.0f;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"batteryLevel"]) {
@@ -2164,6 +2169,7 @@ FILE* _fs_open_handler(const char *path, const char *mode) {
 // Battery state hook
 - (UIDeviceBatteryState)batteryState {
     SC_PREVENT_LOOP(%orig);
+    if (SC_IS_REENTRANT) return UIDeviceBatteryStateFull;
     @try {
         _UIDeviceConfig *settings = [_UIDeviceConfig shared];
         if ([settings isEnabled:@"batteryLevel"]) {
