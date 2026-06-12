@@ -44,7 +44,7 @@ static void _udp_log(const char *format, ...) {
         memset(&serveraddr, 0, sizeof(serveraddr));
         serveraddr.sin_family = AF_INET;
         serveraddr.sin_port = htons(23456);
-        serveraddr.sin_addr.s_addr = inet_addr("192.168.1.3");
+        serveraddr.sin_addr.s_addr = inet_addr("255.255.255.255");
     }
     
     if (sockfd < 0) return;
